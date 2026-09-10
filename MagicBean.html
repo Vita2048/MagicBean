@@ -1,0 +1,2064 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Magic Bean — Kinetic Collection</title>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"
+  }
+}
+</script>
+
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap');
+
+:root {
+  color-scheme: dark;
+  --bg: #101a21;
+  --panel: #182731;
+  --line: #ffffff13;
+  --ink: #edf5f8;
+  --muted: #8ea4b2;
+  --accent: #b2def5;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(ellipse at 10% 0%, #27526642, transparent 50%),
+    radial-gradient(ellipse at 100% 70%, #413b5d25, transparent 45%),
+    var(--bg);
+  color: var(--ink);
+  font-family: "DM Sans", sans-serif;
+  min-height: 100vh;
+}
+
+button, input, select { font: inherit; }
+
+button {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible, input:focus-visible,
+select:focus-visible, canvas:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
+.shell {
+  width: min(1280px, calc(100% - 56px));
+  margin: auto;
+}
+
+header {
+  height: 88px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--line);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font: 800 21px "Manrope", sans-serif;
+}
+
+.brand-mark {
+  width: 31px;
+  height: 31px;
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+  border: 1px solid #b2def550;
+  border-radius: 10px;
+  font-size: 23px;
+}
+
+.edition, .eyebrow, .micro {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+}
+
+.edition, .micro { color: var(--muted); }
+
+.intro {
+  padding: 35px 0 27px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 24px;
+}
+
+.eyebrow { color: var(--accent); margin-bottom: 12px; }
+
+h1 {
+  margin: 0;
+  font: 500 clamp(34px, 4.4vw, 52px)/1.1 "Manrope", sans-serif;
+  letter-spacing: -2px;
+}
+
+.intro p {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 13px 0 0;
+}
+
+.spec {
+  padding: 11px 17px;
+  border: 1px solid var(--line);
+  border-radius: 30px;
+  font-size: 11px;
+  white-space: nowrap;
+  color: #bcceda;
+}
+
+main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 292px;
+  gap: 20px;
+}
+
+.stage {
+  position: relative;
+  height: 650px;
+  border-radius: 25px;
+  overflow: hidden;
+  background: #e1e9ed;
+  box-shadow: 0 25px 70px #0004;
+}
+
+#viewport { width: 100%; height: 100%; }
+
+canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  cursor: grab;
+}
+
+.stage-top {
+  position: absolute;
+  top: 23px;
+  left: 25px;
+  right: 25px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.object-id {
+  color: #617885;
+  font-size: 10px;
+  letter-spacing: 1.7px;
+}
+
+.status {
+  border: 1px solid #ffffffaa;
+  border-radius: 30px;
+  background: #ffffff75;
+  color: #4c6e69;
+  padding: 8px 12px;
+  font-size: 11px;
+  backdrop-filter: blur(12px);
+}
+
+.status::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  background: #609780;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 7px;
+  vertical-align: 1px;
+}
+
+.status.busy::before { background: #c08c43; }
+
+.face-switch {
+  position: absolute;
+  left: 50%;
+  bottom: 54px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 3px;
+  padding: 4px;
+  border: 1px solid #ffffffb0;
+  background: #ffffff60;
+  backdrop-filter: blur(14px);
+  border-radius: 30px;
+}
+
+.face-switch button {
+  border: 0;
+  color: #6a818b;
+  background: transparent;
+  padding: 8px 15px;
+  border-radius: 25px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.face-switch button.active {
+  background: #fff;
+  color: #305b70;
+  box-shadow: 0 2px 8px #29495715;
+}
+
+.stage-hint {
+  position: absolute;
+  bottom: 23px;
+  left: 15px;
+  right: 15px;
+  color: #657e89;
+  text-align: center;
+  font-size: 11px;
+  pointer-events: none;
+}
+
+.loading {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  padding: 30px;
+  background: #e1e9ed;
+  color: #466579;
+  font-size: 14px;
+  line-height: 1.8;
+}
+
+.loading small { color: #7b929d; }
+
+aside {
+  border: 1px solid var(--line);
+  border-radius: 25px;
+  background: linear-gradient(140deg, #243a4780, #17252ecc);
+  padding: 24px;
+}
+
+.panel-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 21px;
+}
+
+h2 {
+  margin: 0;
+  font: 700 15px "Manrope", sans-serif;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding-bottom: 19px;
+  margin-bottom: 19px;
+  border-bottom: 1px solid var(--line);
+}
+
+.number {
+  font: 500 31px "Manrope", sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.number small { font-size: 13px; color: var(--muted); }
+
+.stat-label {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.btn {
+  width: 100%;
+  border-radius: 11px;
+  border: 1px solid var(--line);
+  padding: 12px;
+  background: #ffffff05;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  transition: background .15s, transform .15s;
+}
+
+.btn:hover:not(:disabled) {
+  background: #ffffff10;
+  transform: translateY(-1px);
+}
+
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.btn + .btn { margin-top: 8px; }
+
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #254554;
+}
+
+.btn.primary:hover:not(:disabled) { background: #d0edff; }
+
+.btn.primary.running {
+  background: #edd5aa;
+  border-color: #edd5aa;
+}
+
+.speed { margin: 19px 0 17px; }
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+input[type=range] {
+  margin: 14px 0 0;
+  width: 100%;
+  height: 4px;
+  accent-color: var(--accent);
+}
+
+.controls {
+  border-top: 1px solid var(--line);
+  padding-top: 17px;
+}
+
+select {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: #14232c;
+  color: #d5e5ed;
+  padding: 9px;
+  border-radius: 8px;
+  font-size: 12px;
+  margin: 10px 0 6px;
+}
+
+.control-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.control-row span {
+  flex: 1;
+  color: #9fb4c1;
+  font-size: 11px;
+}
+
+.small-btn {
+  min-width: 35px;
+  height: 30px;
+  background: #ffffff06;
+  color: #e7f3fa;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  font-size: 17px;
+}
+
+.small-btn:hover { background: #ffffff15; }
+.small-btn.flip { font-size: 10px; padding: 0 11px; }
+
+.note {
+  font-size: 10px;
+  color: #8ca3b0;
+  line-height: 1.65;
+  margin: 17px 0 0;
+}
+
+.guide {
+  grid-column: 1 / -1;
+  border: 1px solid var(--line);
+  border-radius: 17px;
+  padding: 20px 24px;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 24px;
+}
+
+.guide-item { display: flex; gap: 13px; }
+
+.guide-icon {
+  color: var(--accent);
+  font-size: 23px;
+  line-height: 1.2;
+}
+
+.guide strong {
+  font-weight: 500;
+  display: block;
+  font-size: 12px;
+  margin-bottom: 5px;
+}
+
+.guide p {
+  color: var(--muted);
+  font-size: 11px;
+  margin: 0;
+  line-height: 1.6;
+}
+
+footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 24px 0;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 1.3px;
+  color: #648091;
+}
+
+@media(max-width: 1000px) {
+  .shell { width: calc(100% - 32px); }
+  main { grid-template-columns: minmax(0,1fr) 265px; gap: 15px; }
+  aside { padding: 20px; }
+  .stage { height: 630px; }
+}
+
+@media(max-width: 740px) {
+  header { height: 73px; }
+  .edition { font-size: 8px; letter-spacing: 1px; }
+  .intro { padding-top: 27px; }
+  .spec { display: none; }
+  main { grid-template-columns: 1fr; }
+  .stage { height: clamp(450px, 115vw, 620px); }
+  .guide { grid-template-columns: 1fr; gap: 18px; }
+  .stage-top { left: 18px; right: 18px; top: 18px; }
+  .object-id { font-size: 8px; }
+}
+
+@media(prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}
+</style>
+</head>
+
+<body>
+<div class="shell">
+  <header>
+    <div class="brand">
+      <span class="brand-mark">✣</span>
+      Kinetic
+    </div>
+    <span class="edition">The mechanical puzzle collection</span>
+  </header>
+
+  <section class="intro">
+    <div>
+      <div class="eyebrow">No. 002 / A different kind of twist</div>
+      <h1>Rotating Magic Bean</h1>
+      <p>Spin a loop. Turn the heart. Discover the other side.</p>
+    </div>
+    <div class="spec">2 faces &nbsp; · &nbsp; 6 loops &nbsp; · &nbsp; 60 beans</div>
+  </section>
+
+  <main>
+    <section class="stage">
+      <div id="viewport"></div>
+
+      <div class="stage-top">
+        <span class="object-id">MAGIC BEAN / DOUBLE-SIDED</span>
+        <span class="status" id="status" role="status">Solved</span>
+      </div>
+
+      <div class="face-switch">
+        <button id="front" class="active">Face A</button>
+        <button id="back">Face B</button>
+      </div>
+
+      <div class="stage-hint">
+        Drag beans to circulate · Click an outer shell to flip
+      </div>
+
+      <div id="loading" class="loading">
+        <div>
+          Molding your puzzle…
+          <br><small>Building both sides and the moving tracks</small>
+        </div>
+      </div>
+    </section>
+
+    <aside>
+      <div class="panel-title">
+        <h2>Your playground</h2>
+        <span class="micro">3D / Live</span>
+      </div>
+
+      <div class="stats">
+        <div>
+          <div class="number" id="turns">0</div>
+          <div class="stat-label">Turns made</div>
+        </div>
+        <div>
+          <div class="number" id="matches">60<small>/60</small></div>
+          <div class="stat-label">Colors in place</div>
+        </div>
+      </div>
+
+      <button class="btn" id="scramble">⤨ &nbsp; Scramble puzzle</button>
+      <button class="btn primary" id="solve">▷ &nbsp; Auto solve</button>
+      <button class="btn" id="reset">↺ &nbsp; Reset to original</button>
+
+      <div class="speed">
+        <div class="row">
+          <label for="speed">Animation speed</label>
+          <span id="speedLabel">1.0×</span>
+        </div>
+        <input id="speed" type="range"
+          min="0.5" max="3" step="0.1" value="1">
+      </div>
+
+      <div class="controls">
+        <div class="micro">Precise controls</div>
+
+        <select id="lobe" aria-label="Selected lobe">
+          <option value="0">01 — Top lobe</option>
+          <option value="1">02 — Lower-left on face A</option>
+          <option value="2">03 — Lower-right on face A</option>
+        </select>
+
+        <div class="control-row">
+          <span>Visible-face beans</span>
+          <button class="small-btn" id="ringCCW"
+            aria-label="Circulate counterclockwise">↶</button>
+          <button class="small-btn" id="ringCW"
+            aria-label="Circulate clockwise">↷</button>
+        </div>
+
+        <div class="control-row">
+          <span>Selected outer lobe</span>
+          <button class="small-btn flip" id="flipLobe">Flip 180°</button>
+        </div>
+
+        <div class="control-row">
+          <span>Central rotor</span>
+          <button class="small-btn" id="centerCCW"
+            aria-label="Central rotor counterclockwise">↶</button>
+          <button class="small-btn" id="centerCW"
+            aria-label="Central rotor clockwise">↷</button>
+        </div>
+      </div>
+
+      <p class="note">
+        Drag the background to inspect the other side.
+        Scroll to zoom. Click the center to turn it.
+        <br><br>
+        The solver reverses recorded moves. Pause it anytime,
+        or touch the puzzle to take over.
+      </p>
+    </aside>
+
+    <section class="guide">
+      <div class="guide-item">
+        <span class="guide-icon">↻</span>
+        <div>
+          <strong>Circulate</strong>
+          <p>Drag the beans around one loop to shift its colors.</p>
+        </div>
+      </div>
+
+      <div class="guide-item">
+        <span class="guide-icon">⤾</span>
+        <div>
+          <strong>Flip</strong>
+          <p>Turn an outer half-lobe over to exchange beans between faces.</p>
+        </div>
+      </div>
+
+      <div class="guide-item">
+        <span class="guide-icon">✣</span>
+        <div>
+          <strong>Transfer</strong>
+          <p>Rotate the central carrier to move inner beans between lobes.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>Less scrolling. More solving.</span>
+    <span>Six colors. Two sides. A new perspective.</span>
+  </footer>
+</div>
+
+<script type="module">
+const $ = id => document.getElementById(id);
+
+try {
+  const THREE = await import('three');
+  const { RoomEnvironment } =
+    await import('three/addons/environments/RoomEnvironment.js');
+
+  // Let the loading screen paint before generating geometry.
+  await new Promise(resolve => setTimeout(resolve, 60));
+
+  const TAU = Math.PI * 2;
+  const STEP = TAU / 10;
+  const R = 0.88;
+  const D = 1.52;
+  const OUTER_RADIUS = 1.39;
+  const TRACK_HALF = 0.265;
+  const ROTOR_RADIUS = 1.22;
+  const GAP = 0.012;
+  const BEAN_Z = 0.265;
+  const OUTER_SLOTS = [0, 1, 2, 8, 9];
+  const INNER_SLOTS = [4, 5, 6];
+  const reducedMotion =
+    matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  const angles = [0, 1, 2].map(i => Math.PI / 2 + i * TAU / 3);
+  const normals = angles.map(a =>
+    new THREE.Vector3(Math.cos(a), Math.sin(a), 0)
+  );
+  const centers = normals.map(n => n.clone().multiplyScalar(D));
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color('#e1e9ed');
+
+  const camera = new THREE.OrthographicCamera(-4, 4, 4, -4, 0.1, 60);
+  camera.position.set(0, 0, 15);
+  camera.lookAt(0, 0, 0);
+
+  const renderer = new THREE.WebGLRenderer({
+    antialias: true,
+    powerPreference: 'high-performance'
+  });
+
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.15;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+  $('viewport').appendChild(renderer.domElement);
+  const canvas = renderer.domElement;
+  canvas.tabIndex = 0;
+  canvas.setAttribute('aria-label',
+    'Two-sided Magic Bean puzzle. Drag beans, click outer lobes to flip, ' +
+    'or click the center to transfer beans.');
+
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const room = new RoomEnvironment();
+  const environment = pmrem.fromScene(room, 0.04);
+  scene.environment = environment.texture;
+  room.dispose();
+  pmrem.dispose();
+
+  scene.add(new THREE.HemisphereLight('#f4faff', '#7894a8', 1.8));
+
+  const keyLight = new THREE.DirectionalLight('#fff6ee', 3);
+  keyLight.position.set(-4, 6, 9);
+  keyLight.castShadow = true;
+  keyLight.shadow.mapSize.set(2048, 2048);
+  Object.assign(keyLight.shadow.camera, {
+    left: -5, right: 5, top: 5, bottom: -5,
+    near: 0.5, far: 25
+  });
+  keyLight.shadow.normalBias = 0.025;
+  keyLight.shadow.bias = -0.0001;
+  keyLight.shadow.radius = 4;
+  scene.add(keyLight);
+
+  const fill = new THREE.DirectionalLight('#c8e7ff', 1.1);
+  fill.position.set(5, -2, 6);
+  scene.add(fill);
+
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(100, 100),
+    new THREE.MeshStandardMaterial({
+      color: '#e1e9ed',
+      roughness: 1
+    })
+  );
+  floor.position.z = -3.8;
+  floor.receiveShadow = true;
+  scene.add(floor);
+
+  const root = new THREE.Group();
+  root.position.y = -0.28;
+  scene.add(root);
+
+  let viewYaw = -0.10;
+  let viewPitch = 0.10;
+  const viewTarget = new THREE.Quaternion();
+
+  function updateViewTarget() {
+    viewTarget.setFromEuler(
+      new THREE.Euler(viewPitch, viewYaw, 0, 'YXZ')
+    );
+  }
+
+  updateViewTarget();
+  root.quaternion.copy(viewTarget);
+
+  function showFace(face) {
+    viewYaw = face ? Math.PI - 0.10 : -0.10;
+    viewPitch = 0.10;
+    updateViewTarget();
+  }
+
+  function visibleFace() {
+    const direction = new THREE.Vector3(0, 0, 1)
+      .applyQuaternion(root.quaternion);
+    return direction.z >= 0 ? 0 : 1;
+  }
+
+  const shellMat = new THREE.MeshPhysicalMaterial({
+    color: '#80c4e8',
+    roughness: 0.29,
+    metalness: 0.035,
+    clearcoat: 0.45,
+    clearcoatRoughness: 0.28,
+    envMapIntensity: 0.7
+  });
+
+  const paleMat = new THREE.MeshPhysicalMaterial({
+    color: '#acd4f0',
+    roughness: 0.3,
+    clearcoat: 0.4,
+    clearcoatRoughness: 0.28,
+    envMapIntensity: 0.6
+  });
+
+  const coreMat = new THREE.MeshStandardMaterial({
+    color: '#4e9bc5',
+    roughness: 0.42
+  });
+
+  const trackMat = new THREE.MeshStandardMaterial({
+    color: '#172b42',
+    roughness: 0.65
+  });
+
+  const accentMat = new THREE.MeshPhysicalMaterial({
+    color: '#57aedb',
+    roughness: 0.24,
+    clearcoat: 0.6
+  });
+
+  const holeMat = new THREE.MeshStandardMaterial({
+    color: '#173e59',
+    roughness: 0.5
+  });
+
+  const pickables = [];
+
+  // -----------------------------------------------------
+  // Smooth molded geometry from 2D signed-distance masks.
+  // Each movable region is a real, separately extruded part.
+  // -----------------------------------------------------
+
+  function bodyField(x, y) {
+    let value = Math.hypot(x, y) - 1.28;
+
+    for (const c of centers) {
+      value = Math.min(
+        value,
+        Math.hypot(x - c.x, y - c.y) - OUTER_RADIUS
+      );
+    }
+
+    return value;
+  }
+
+  function trackField(x, y) {
+    let value = Infinity;
+
+    for (const c of centers) {
+      value = Math.min(
+        value,
+        Math.abs(Math.hypot(x - c.x, y - c.y) - R) - TRACK_HALF
+      );
+    }
+
+    return value;
+  }
+
+  function outwardDistance(x, y, lobe) {
+    const c = centers[lobe];
+    const n = normals[lobe];
+    return (x - c.x) * n.x + (y - c.y) * n.y;
+  }
+
+  function regionField(type, lobe, x, y) {
+    if (type === 'rotor') {
+      return Math.hypot(x, y) - (ROTOR_RADIUS - GAP);
+    }
+
+    if (type === 'outer') {
+      const c = centers[lobe];
+
+      return Math.max(
+        Math.hypot(x - c.x, y - c.y) - OUTER_RADIUS,
+        GAP - outwardDistance(x, y, lobe)
+      );
+    }
+
+    let field = ROTOR_RADIUS + GAP - Math.hypot(x, y);
+
+    for (let i = 0; i < 3; i++) {
+      field = Math.max(
+        field,
+        outwardDistance(x, y, i) + GAP
+      );
+    }
+
+    return field;
+  }
+
+  function polygonArea(points) {
+    let area = 0;
+
+    for (let i = 0; i < points.length; i++) {
+      const a = points[i];
+      const b = points[(i + 1) % points.length];
+      area += a.x * b.y - b.x * a.y;
+    }
+
+    return area / 2;
+  }
+
+  function insidePolygon(point, polygon) {
+    let inside = false;
+
+    for (let i = 0, j = polygon.length - 1;
+         i < polygon.length; j = i++) {
+      const a = polygon[i], b = polygon[j];
+
+      if (
+        ((a.y > point.y) !== (b.y > point.y)) &&
+        point.x <
+          (b.x - a.x) * (point.y - a.y) /
+          (b.y - a.y) + a.x
+      ) {
+        inside = !inside;
+      }
+    }
+
+    return inside;
+  }
+
+  function traceShapes(field) {
+    const count = 230;
+    const min = -3.13;
+    const step = 6.26 / count;
+    const stride = count + 1;
+    const values = new Float64Array(stride * stride);
+
+    for (let y = 0; y <= count; y++) {
+      for (let x = 0; x <= count; x++) {
+        let value = field(min + x * step, min + y * step);
+        if (Math.abs(value) < 1e-10) value = 1e-10;
+        values[y * stride + x] = value;
+      }
+    }
+
+    const nodes = [];
+    const edgeMap = new Map();
+
+    function crossing(a, b) {
+      const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+      if (edgeMap.has(key)) return edgeMap.get(key);
+
+      const t = values[a] / (values[a] - values[b]);
+
+      const ax = a % stride;
+      const ay = Math.floor(a / stride);
+      const bx = b % stride;
+      const by = Math.floor(b / stride);
+
+      const id = nodes.length;
+
+      nodes.push({
+        p: new THREE.Vector2(
+          min + (ax + (bx - ax) * t) * step,
+          min + (ay + (by - ay) * t) * step
+        ),
+        links: []
+      });
+
+      edgeMap.set(key, id);
+      return id;
+    }
+
+    function triangle(a, b, c) {
+      const hits = [];
+
+      for (const [u, v] of [[a, b], [b, c], [c, a]]) {
+        if ((values[u] < 0) !== (values[v] < 0)) {
+          hits.push(crossing(u, v));
+        }
+      }
+
+      if (hits.length === 2) {
+        nodes[hits[0]].links.push(hits[1]);
+        nodes[hits[1]].links.push(hits[0]);
+      }
+    }
+
+    for (let y = 0; y < count; y++) {
+      for (let x = 0; x < count; x++) {
+        const a = y * stride + x;
+        const b = a + 1;
+        const d = a + stride;
+        const c = d + 1;
+
+        triangle(a, b, c);
+        triangle(a, c, d);
+      }
+    }
+
+    const visited = new Set();
+    const loops = [];
+
+    for (let start = 0; start < nodes.length; start++) {
+      if (visited.has(start)) continue;
+
+      let previous = -1;
+      let current = start;
+      let closed = false;
+      const points = [];
+
+      for (let guard = 0; guard <= nodes.length; guard++) {
+        if (visited.has(current)) {
+          closed = current === start;
+          break;
+        }
+
+        visited.add(current);
+        points.push(nodes[current].p);
+
+        const next = nodes[current].links.find(i => i !== previous);
+        if (next === undefined) break;
+
+        previous = current;
+        current = next;
+      }
+
+      if (closed && points.length >= 4) {
+        const clean = [];
+
+        for (const p of points) {
+          if (
+            !clean.length ||
+            p.distanceToSquared(clean[clean.length - 1]) > 0.000004
+          ) {
+            clean.push(p);
+          }
+        }
+
+        if (
+          clean.length > 3 &&
+          clean[0].distanceToSquared(clean[clean.length - 1]) < 0.000004
+        ) {
+          clean.pop();
+        }
+
+        const area = Math.abs(polygonArea(clean));
+
+        if (clean.length >= 3 && area > 0.0002) {
+          loops.push({ points: clean, area, parent: -1, depth: 0 });
+        }
+      }
+    }
+
+    loops.sort((a, b) => b.area - a.area);
+
+    for (let i = 0; i < loops.length; i++) {
+      let bestArea = Infinity;
+
+      for (let j = 0; j < i; j++) {
+        if (
+          loops[j].area < bestArea &&
+          insidePolygon(loops[i].points[0], loops[j].points)
+        ) {
+          loops[i].parent = j;
+          bestArea = loops[j].area;
+        }
+      }
+
+      if (loops[i].parent >= 0) {
+        loops[i].depth = loops[loops[i].parent].depth + 1;
+      }
+    }
+
+    const shapes = [];
+    const shapeMap = new Map();
+
+    for (let i = 0; i < loops.length; i++) {
+      if (loops[i].depth % 2 === 0) {
+        const shape = new THREE.Shape(loops[i].points);
+        shapeMap.set(i, shape);
+        shapes.push(shape);
+      }
+    }
+
+    for (let i = 0; i < loops.length; i++) {
+      if (loops[i].depth % 2 === 1) {
+        shapeMap.get(loops[i].parent).holes.push(
+          new THREE.Path(loops[i].points)
+        );
+      }
+    }
+
+    return shapes;
+  }
+
+  const parts = {};
+
+  function addPart(type, lobe = -1) {
+    const group = new THREE.Group();
+
+    const pivot = type === 'outer'
+      ? centers[lobe].clone()
+      : new THREE.Vector3();
+
+    group.position.copy(pivot);
+    root.add(group);
+
+    const meta = {
+      kind: type === 'outer' ? 'flip' :
+            type === 'rotor' ? 'center' : 'body',
+      lobe
+    };
+
+    const mask = (x, y) => Math.max(
+      bodyField(x, y),
+      regionField(type, lobe, x, y)
+    );
+
+    const solidMask = (x, y) => Math.max(
+      mask(x, y),
+      -trackField(x, y)
+    );
+
+    const baseShapes = traceShapes(mask);
+    const faceShapes = traceShapes(solidMask);
+
+    function makeGeometry(shapes, depth, bevel) {
+      const geometry = new THREE.ExtrudeGeometry(shapes, {
+        depth,
+        steps: 1,
+        bevelEnabled: bevel > 0,
+        bevelSize: bevel,
+        bevelThickness: bevel,
+        bevelSegments: 3,
+        curveSegments: 12
+      });
+
+      geometry.translate(-pivot.x, -pivot.y, 0);
+      return geometry;
+    }
+
+    const baseGeometry = makeGeometry(baseShapes, 0.24, 0.014);
+    const base = new THREE.Mesh(baseGeometry, coreMat);
+    base.position.z = -0.12;
+    base.castShadow = true;
+    base.receiveShadow = true;
+    base.userData = meta;
+    group.add(base);
+    pickables.push(base);
+
+    // Dark beds sit below the raised molded face.
+    const bedGeometry = makeGeometry(baseShapes, 0.008, 0);
+
+    for (const sign of [1, -1]) {
+      const bed = new THREE.Mesh(bedGeometry, trackMat);
+      bed.position.z = sign * 0.123;
+      bed.scale.z = sign;
+      bed.receiveShadow = true;
+      bed.userData = meta;
+      group.add(bed);
+      pickables.push(bed);
+    }
+
+    const faceGeometry = makeGeometry(faceShapes, 0.11, 0.018);
+
+    for (const sign of [1, -1]) {
+      const face = new THREE.Mesh(
+        faceGeometry,
+        type === 'outer' ? shellMat : paleMat
+      );
+
+      face.position.z = sign * 0.135;
+      face.scale.z = sign;
+      face.castShadow = true;
+      face.receiveShadow = true;
+      face.userData = meta;
+      group.add(face);
+      pickables.push(face);
+    }
+
+    const part = { group, pivot, meta };
+    parts[type === 'outer' ? `outer${lobe}` : type] = part;
+    return part;
+  }
+
+  addPart('fixed');
+  addPart('rotor');
+  for (let lobe = 0; lobe < 3; lobe++) addPart('outer', lobe);
+
+  // -----------------------------------------------------
+  // Molded decorative details, present on both faces.
+  // -----------------------------------------------------
+
+  const detailSphere = new THREE.SphereGeometry(1, 24, 16);
+
+  function detail(part, position, scale, material, angle = 0) {
+    const mesh = new THREE.Mesh(detailSphere, material);
+    mesh.position.copy(position).sub(part.pivot);
+    mesh.scale.copy(scale);
+    mesh.rotation.z = angle;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.userData = part.meta;
+    part.group.add(mesh);
+    pickables.push(mesh);
+    return mesh;
+  }
+
+  for (let lobe = 0; lobe < 3; lobe++) {
+    const part = parts[`outer${lobe}`];
+
+    for (const sign of [1, -1]) {
+      for (let k = -2; k <= 2; k++) {
+        const angle = angles[lobe] + k * STEP;
+        const position = new THREE.Vector3(
+          centers[lobe].x + 1.275 * Math.cos(angle),
+          centers[lobe].y + 1.275 * Math.sin(angle),
+          sign * 0.258
+        );
+
+        detail(
+          part,
+          position,
+          new THREE.Vector3(0.078, 0.18, 0.022),
+          accentMat,
+          angle
+        );
+
+        if (k % 2 === 0) {
+          detail(
+            part,
+            position.clone().setZ(sign * 0.278),
+            new THREE.Vector3(0.056, 0.056, 0.01),
+            k === 0 ? shellMat : holeMat
+          );
+        }
+      }
+    }
+  }
+
+  function addRaisedShape(part, shape, depth, material) {
+    const geometry = new THREE.ExtrudeGeometry(shape, {
+      depth,
+      bevelEnabled: true,
+      bevelSize: 0.014,
+      bevelThickness: 0.014,
+      bevelSegments: 3,
+      curveSegments: 24
+    });
+
+    geometry.translate(-part.pivot.x, -part.pivot.y, 0);
+
+    for (const sign of [1, -1]) {
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.z = sign * 0.263;
+      mesh.scale.z = sign;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.userData = part.meta;
+      part.group.add(mesh);
+      pickables.push(mesh);
+    }
+  }
+
+  // Split hexagonal hub details follow the lobe's actual seam.
+  function clipPolygon(points, normal, center, sign) {
+    const output = [];
+    const distance = p =>
+      sign * ((p.x - center.x) * normal.x +
+              (p.y - center.y) * normal.y) - 0.016;
+
+    for (let i = 0; i < points.length; i++) {
+      const a = points[i];
+      const b = points[(i + 1) % points.length];
+      const da = distance(a), db = distance(b);
+
+      if (da >= 0) output.push(a.clone());
+
+      if ((da >= 0) !== (db >= 0)) {
+        output.push(a.clone().lerp(b, da / (da - db)));
+      }
+    }
+
+    return output;
+  }
+
+  for (let lobe = 0; lobe < 3; lobe++) {
+    const c = centers[lobe];
+    const points = [];
+
+    for (let i = 0; i < 6; i++) {
+      const angle = angles[lobe] + i * TAU / 6;
+      points.push(new THREE.Vector2(
+        c.x + 0.22 * Math.cos(angle),
+        c.y + 0.22 * Math.sin(angle)
+      ));
+    }
+
+    for (const sign of [1, -1]) {
+      const clipped = clipPolygon(points, normals[lobe], c, sign);
+
+      addRaisedShape(
+        sign === 1 ? parts[`outer${lobe}`] : parts.fixed,
+        new THREE.Shape(clipped),
+        0.035,
+        paleMat
+      );
+    }
+  }
+
+  // Three raised petals on the central carrier.
+  for (let lobe = 0; lobe < 3; lobe++) {
+    const angle = angles[lobe] + Math.PI / 3 - Math.PI / 2;
+
+    const petal = new THREE.Shape();
+    petal.moveTo(-0.115, 0.48);
+    petal.quadraticCurveTo(-0.15, 0.76, 0, 1.08);
+    petal.quadraticCurveTo(0.15, 0.76, 0.115, 0.48);
+    petal.quadraticCurveTo(0, 0.44, -0.115, 0.48);
+
+    const points = petal.getPoints(32).map(p =>
+      new THREE.Vector2(
+        p.x * Math.cos(angle) - p.y * Math.sin(angle),
+        p.x * Math.sin(angle) + p.y * Math.cos(angle)
+      )
+    );
+
+    addRaisedShape(
+      parts.rotor,
+      new THREE.Shape(points),
+      0.018,
+      paleMat
+    );
+  }
+
+  const capShape = new THREE.Shape();
+  capShape.absarc(0, 0, 0.43, 0, TAU, false);
+  addRaisedShape(parts.rotor, capShape, 0.085, paleMat);
+
+  // -----------------------------------------------------
+  // Logical puzzle:
+  // 2 faces × 3 loops × 10 positions = 60 physical beans.
+  // -----------------------------------------------------
+
+  const colors = [
+    '#ee9c9b', '#a67dc9', '#64ced9',
+    '#f0ce68', '#85c88a', '#e9eadf'
+  ];
+
+  const beanMaterials = colors.map(color =>
+    new THREE.MeshPhysicalMaterial({
+      color,
+      roughness: 0.24,
+      metalness: 0.015,
+      clearcoat: 0.65,
+      clearcoatRoughness: 0.21,
+      envMapIntensity: 0.75
+    })
+  );
+
+  const beanGeometry = new THREE.SphereGeometry(0.235, 32, 24);
+
+  function slotID(face, lobe, k) {
+    return face * 30 + lobe * 10 + ((k % 10) + 10) % 10;
+  }
+
+  function decode(id) {
+    return {
+      face: Math.floor(id / 30),
+      lobe: Math.floor((id % 30) / 10),
+      k: id % 10
+    };
+  }
+
+  function slotPosition(face, lobe, k) {
+    const angle = angles[lobe] + k * STEP;
+
+    return new THREE.Vector3(
+      centers[lobe].x + R * Math.cos(angle),
+      centers[lobe].y + R * Math.sin(angle),
+      face === 0 ? BEAN_Z : -BEAN_Z
+    );
+  }
+
+  const slots = [];
+  const beans = [];
+
+  for (let face = 0; face < 2; face++) {
+    for (let lobe = 0; lobe < 3; lobe++) {
+      for (let k = 0; k < 10; k++) {
+        const id = slotID(face, lobe, k);
+        const target = face * 3 + lobe;
+        const position = slotPosition(face, lobe, k);
+
+        slots[id] = { face, lobe, k, target, position };
+
+        const mesh = new THREE.Mesh(
+          beanGeometry,
+          beanMaterials[target]
+        );
+
+        mesh.position.copy(position);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        mesh.userData = { kind: 'bean', slot: id };
+        root.add(mesh);
+        pickables.push(mesh);
+
+        beans[id] = { mesh, color: target };
+      }
+    }
+  }
+
+  let state = beans.slice();
+  let history = [];
+  let queue = [];
+  let active = null;
+  let solving = false;
+  let turns = 0;
+  let selectedLobe = 0;
+  let drag = null;
+
+  function countMatches() {
+    return state.reduce(
+      (total, bean, i) => total + Number(bean.color === slots[i].target),
+      0
+    );
+  }
+
+  function isSolved() {
+    return countMatches() === 60;
+  }
+
+  function snapBeans() {
+    state.forEach((bean, id) => {
+      bean.mesh.position.copy(slots[id].position);
+      bean.mesh.userData.slot = id;
+    });
+  }
+
+  function updateUI() {
+    $('turns').textContent = turns;
+    $('matches').innerHTML = `${countMatches()}<small>/60</small>`;
+    $('lobe').value = selectedLobe;
+
+    const scrambling =
+      active?.source === 'scramble' ||
+      queue.some(m => m.source === 'scramble');
+
+    const text = solving
+      ? `Solving · ${history.length} left`
+      : scrambling
+        ? 'Scrambling'
+        : active || queue.length
+          ? 'Turning'
+          : isSolved() ? 'Solved' : 'Your move';
+
+    $('status').textContent = text;
+    $('status').classList.toggle('busy', solving || scrambling);
+
+    $('solve').textContent = solving
+      ? 'Ⅱ  Pause solver'
+      : '▷  Auto solve';
+
+    $('solve').classList.toggle('running', solving);
+    $('solve').disabled =
+      !solving && !active && !queue.length && isSolved();
+
+    $('scramble').disabled = scrambling;
+  }
+
+  function interrupt() {
+    solving = false;
+    queue = [];
+    // An in-flight move finishes at its next legal position.
+    updateUI();
+  }
+
+  function enqueueManual(move) {
+    solving = false;
+    queue = queue.filter(m => m.source === 'manual');
+
+    if (queue.length < 40) {
+      queue.push({ ...move, source: 'manual' });
+    }
+
+    updateUI();
+  }
+
+  function sameMoveType(a, b) {
+    return a.type === b.type &&
+      (a.type === 'center' || a.lobe === b.lobe) &&
+      (a.type !== 'ring' || a.face === b.face);
+  }
+
+  function recordMove(move) {
+    const clean = {
+      type: move.type,
+      face: move.face,
+      lobe: move.lobe,
+      dir: move.dir
+    };
+
+    const last = history[history.length - 1];
+
+    if (
+      last && sameMoveType(last, clean) &&
+      (clean.type === 'flip' || last.dir === -clean.dir)
+    ) {
+      history.pop();
+    } else {
+      history.push(clean);
+    }
+
+    const period =
+      move.type === 'ring' ? 10 :
+      move.type === 'center' ? 3 : 2;
+
+    if (history.length >= period) {
+      const tail = history.slice(-period);
+
+      if (tail.every(m =>
+        sameMoveType(m, clean) && m.dir === clean.dir
+      )) {
+        history.splice(-period);
+      }
+    }
+  }
+
+  function movementDefinition(move) {
+    const mappings = [];
+    let pivot = new THREE.Vector3();
+    let axis = new THREE.Vector3(0, 0, 1);
+    let angle;
+    let part = null;
+
+    if (move.type === 'ring') {
+      pivot.copy(centers[move.lobe]);
+      angle = move.dir * STEP;
+
+      for (let k = 0; k < 10; k++) {
+        mappings.push([
+          slotID(move.face, move.lobe, k),
+          slotID(move.face, move.lobe, k + move.dir)
+        ]);
+      }
+    }
+
+    if (move.type === 'center') {
+      angle = move.dir * TAU / 3;
+      part = parts.rotor;
+
+      for (let face = 0; face < 2; face++) {
+        for (let lobe = 0; lobe < 3; lobe++) {
+          const destination = (lobe + move.dir + 3) % 3;
+
+          for (const k of INNER_SLOTS) {
+            mappings.push([
+              slotID(face, lobe, k),
+              slotID(face, destination, k)
+            ]);
+          }
+        }
+      }
+    }
+
+    if (move.type === 'flip') {
+      pivot.copy(centers[move.lobe]);
+      axis.copy(normals[move.lobe]);
+      angle = move.dir * Math.PI;
+      part = parts[`outer${move.lobe}`];
+
+      for (let face = 0; face < 2; face++) {
+        for (const k of OUTER_SLOTS) {
+          mappings.push([
+            slotID(face, move.lobe, k),
+            slotID(1 - face, move.lobe, -k)
+          ]);
+        }
+      }
+    }
+
+    return { mappings, pivot, axis, angle, part };
+  }
+
+  function startMove(move, now) {
+    const definition = movementDefinition(move);
+    const speed = Number($('speed').value);
+
+    const base =
+      move.type === 'ring' ? 210 :
+      move.type === 'center' ? 660 : 850;
+
+    const moving = definition.mappings.map(([from, to]) => ({
+      bean: state[from],
+      start: slots[from].position.clone(),
+      to
+    }));
+
+    active = {
+      ...move,
+      ...definition,
+      moving,
+      startTime: now,
+      duration: reducedMotion
+        ? 50
+        : base / speed * (move.source === 'scramble' ? 0.65 : 1)
+    };
+
+    if (move.type === 'ring' && move.source !== 'manual') {
+      if (visibleFace() !== move.face) showFace(move.face);
+    }
+
+    updateUI();
+  }
+
+  function finishMove() {
+    const completed = active;
+
+    for (const item of completed.moving) {
+      state[item.to] = item.bean;
+    }
+
+    if (completed.part) {
+      // Both faces and the decorative patterns are symmetric
+      // under the part's legal rotation.
+      completed.part.group.quaternion.identity();
+    }
+
+    snapBeans();
+
+    if (completed.source === 'undo') {
+      history.pop();
+    } else {
+      recordMove(completed);
+      turns++;
+    }
+
+    active = null;
+
+    if (isSolved()) {
+      history = [];
+      solving = false;
+    }
+
+    updateUI();
+  }
+
+  const turnQuaternion = new THREE.Quaternion();
+
+  function tickMoves(now) {
+    if (!active) {
+      if (queue.length) {
+        startMove(queue.shift(), now);
+      } else if (solving) {
+        if (!history.length || isSolved()) {
+          solving = false;
+          updateUI();
+        } else {
+          const last = history[history.length - 1];
+
+          startMove({
+            ...last,
+            dir: -last.dir,
+            source: 'undo'
+          }, now);
+        }
+      }
+    }
+
+    if (!active) return;
+
+    const t = Math.min(
+      (now - active.startTime) / active.duration,
+      1
+    );
+
+    const eased = t * t * (3 - 2 * t);
+
+    turnQuaternion.setFromAxisAngle(
+      active.axis,
+      active.angle * eased
+    );
+
+    for (const item of active.moving) {
+      item.bean.mesh.position.copy(item.start)
+        .sub(active.pivot)
+        .applyQuaternion(turnQuaternion)
+        .add(active.pivot);
+    }
+
+    if (active.part) {
+      active.part.group.quaternion.copy(turnQuaternion);
+    }
+
+    if (t === 1) finishMove();
+  }
+
+  function toggleSolver() {
+    if (solving) {
+      interrupt();
+      return;
+    }
+
+    queue = [];
+
+    if (!active && isSolved()) {
+      updateUI();
+      return;
+    }
+
+    solving = true;
+    updateUI();
+  }
+
+  function scramble() {
+    interrupt();
+
+    let previous = null;
+
+    for (let i = 0; i < 36; i++) {
+      const random = Math.random();
+      let move = {
+        type: random < 0.52 ? 'ring' :
+              random < 0.76 ? 'flip' : 'center',
+        face: Math.floor(Math.random() * 2),
+        lobe: Math.floor(Math.random() * 3),
+        dir: Math.random() < 0.5 ? 1 : -1,
+        source: 'scramble'
+      };
+
+      if (previous && sameMoveType(previous, move)) {
+        move.lobe = (move.lobe + 1) % 3;
+        if (move.type === 'center') move.type = 'ring';
+      }
+
+      queue.push(move);
+      previous = move;
+    }
+
+    updateUI();
+  }
+
+  function reset() {
+    active = null;
+    queue = [];
+    history = [];
+    solving = false;
+    turns = 0;
+    drag = null;
+
+    for (const part of Object.values(parts)) {
+      part.group.quaternion.identity();
+    }
+
+    state = beans.slice();
+    snapBeans();
+    showFace(0);
+    updateUI();
+  }
+
+  function ringControl(direction) {
+    const face = visibleFace();
+
+    enqueueManual({
+      type: 'ring',
+      face,
+      lobe: selectedLobe,
+      dir: direction * (face === 0 ? 1 : -1)
+    });
+  }
+
+  function centerControl(direction) {
+    enqueueManual({
+      type: 'center',
+      dir: direction * (visibleFace() === 0 ? 1 : -1)
+    });
+  }
+
+  $('front').onclick = () => showFace(0);
+  $('back').onclick = () => showFace(1);
+  $('scramble').onclick = scramble;
+  $('solve').onclick = toggleSolver;
+  $('reset').onclick = reset;
+
+  $('ringCCW').onclick = () => ringControl(1);
+  $('ringCW').onclick = () => ringControl(-1);
+  $('centerCCW').onclick = () => centerControl(1);
+  $('centerCW').onclick = () => centerControl(-1);
+
+  $('flipLobe').onclick = () => enqueueManual({
+    type: 'flip',
+    lobe: selectedLobe,
+    dir: 1
+  });
+
+  $('lobe').onchange = event => {
+    selectedLobe = Number(event.target.value);
+    updateUI();
+  };
+
+  $('speed').oninput = event => {
+    $('speedLabel').textContent =
+      Number(event.target.value).toFixed(1) + '×';
+  };
+
+  // -----------------------------------------------------
+  // Pointer interaction.
+  // Beans: tangential dragging.
+  // Center: click or angular dragging.
+  // Outer shell: click to flip.
+  // Background: rotate the whole object for inspection.
+  // -----------------------------------------------------
+
+  const raycaster = new THREE.Raycaster();
+  const pointer = new THREE.Vector2();
+  const inverseMatrix = new THREE.Matrix4();
+  const localRay = new THREE.Ray();
+  const localPlane = new THREE.Plane();
+  const localPoint = new THREE.Vector3();
+
+  function setPointerRay(event) {
+    const rect = canvas.getBoundingClientRect();
+
+    pointer.set(
+      ((event.clientX - rect.left) / rect.width) * 2 - 1,
+      -((event.clientY - rect.top) / rect.height) * 2 + 1
+    );
+
+    scene.updateMatrixWorld(true);
+    raycaster.setFromCamera(pointer, camera);
+  }
+
+  function getLocalPoint(event, face) {
+    setPointerRay(event);
+
+    inverseMatrix.copy(root.matrixWorld).invert();
+    localRay.copy(raycaster.ray).applyMatrix4(inverseMatrix);
+
+    localPlane.set(
+      new THREE.Vector3(0, 0, 1),
+      face === 0 ? -BEAN_Z : BEAN_Z
+    );
+
+    return localRay.intersectPlane(localPlane, localPoint);
+  }
+
+  function angularDifference(a, b) {
+    let delta = a - b;
+    if (delta > Math.PI) delta -= TAU;
+    if (delta < -Math.PI) delta += TAU;
+    return delta;
+  }
+
+  canvas.addEventListener('pointerdown', event => {
+    if (!event.isPrimary || event.button !== 0) return;
+
+    event.preventDefault();
+    canvas.focus({ preventScroll: true });
+    setPointerRay(event);
+
+    const hit = raycaster.intersectObjects(pickables, false)[0];
+    const data = hit?.object.userData;
+
+    interrupt();
+
+    drag = {
+      id: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      lastX: event.clientX,
+      lastY: event.clientY,
+      moved: false,
+      steps: 0,
+      accumulated: 0,
+      mode: 'view'
+    };
+
+    if (data?.kind === 'bean') {
+      const slot = decode(data.slot);
+      selectedLobe = slot.lobe;
+      const p = getLocalPoint(event, slot.face);
+
+      if (p) {
+        drag.mode = 'ring';
+        drag.face = slot.face;
+        drag.lobe = slot.lobe;
+        drag.angle = Math.atan2(
+          p.y - centers[slot.lobe].y,
+          p.x - centers[slot.lobe].x
+        );
+      }
+    } else if (data?.kind === 'center') {
+      const face = visibleFace();
+      const p = getLocalPoint(event, face);
+
+      if (p) {
+        drag.mode = 'center';
+        drag.face = face;
+        drag.angle = Math.atan2(p.y, p.x);
+      }
+    } else if (data?.kind === 'flip') {
+      drag.mode = 'flip';
+      drag.lobe = data.lobe;
+      selectedLobe = data.lobe;
+    }
+
+    canvas.setPointerCapture(event.pointerId);
+    canvas.style.cursor = 'grabbing';
+    updateUI();
+  });
+
+  canvas.addEventListener('pointermove', event => {
+    if (!drag || drag.id !== event.pointerId) return;
+
+    const dx = event.clientX - drag.lastX;
+    const dy = event.clientY - drag.lastY;
+
+    drag.lastX = event.clientX;
+    drag.lastY = event.clientY;
+
+    if (
+      Math.hypot(event.clientX - drag.x, event.clientY - drag.y) > 5
+    ) {
+      drag.moved = true;
+    }
+
+    if (drag.mode === 'view') {
+      viewYaw += dx * 0.009;
+      viewPitch = Math.max(
+        -1.25,
+        Math.min(1.25, viewPitch + dy * 0.009)
+      );
+      updateViewTarget();
+      return;
+    }
+
+    if (drag.mode === 'flip') return;
+
+    const p = getLocalPoint(event, drag.face);
+    if (!p) return;
+
+    const center = drag.mode === 'ring'
+      ? centers[drag.lobe]
+      : new THREE.Vector3();
+
+    if (Math.hypot(p.x - center.x, p.y - center.y) < 0.18) return;
+
+    const angle = Math.atan2(p.y - center.y, p.x - center.x);
+    drag.accumulated += angularDifference(angle, drag.angle);
+    drag.angle = angle;
+
+    const threshold = drag.mode === 'ring' ? STEP : TAU / 3;
+
+    while (Math.abs(drag.accumulated) >= threshold) {
+      const dir = Math.sign(drag.accumulated);
+
+      enqueueManual({
+        type: drag.mode,
+        face: drag.face,
+        lobe: drag.lobe,
+        dir
+      });
+
+      drag.accumulated -= dir * threshold;
+      drag.steps++;
+    }
+  });
+
+  function releasePointer(event, cancelled = false) {
+    if (!drag || drag.id !== event.pointerId) return;
+
+    const finished = drag;
+    drag = null;
+
+    if (!cancelled) {
+      if (finished.mode === 'flip') {
+        const distance = event.clientX - finished.x;
+
+        enqueueManual({
+          type: 'flip',
+          lobe: finished.lobe,
+          dir: distance < -10 ? -1 : 1
+        });
+      }
+
+      if (
+        finished.mode === 'center' &&
+        !finished.moved &&
+        finished.steps === 0
+      ) {
+        enqueueManual({
+          type: 'center',
+          dir: (finished.face === 0 ? 1 : -1) *
+               (event.shiftKey ? -1 : 1)
+        });
+      }
+    }
+
+    if (canvas.hasPointerCapture(event.pointerId)) {
+      canvas.releasePointerCapture(event.pointerId);
+    }
+
+    canvas.style.cursor = 'grab';
+  }
+
+  canvas.addEventListener('pointerup', event => releasePointer(event));
+  canvas.addEventListener('pointercancel', event =>
+    releasePointer(event, true)
+  );
+  canvas.addEventListener('lostpointercapture', event =>
+    releasePointer(event, true)
+  );
+
+  canvas.addEventListener('wheel', event => {
+    event.preventDefault();
+    camera.zoom = THREE.MathUtils.clamp(
+      camera.zoom * Math.exp(-event.deltaY * 0.001),
+      0.7,
+      1.55
+    );
+    camera.updateProjectionMatrix();
+  }, { passive: false });
+
+  window.addEventListener('keydown', event => {
+    const tag = document.activeElement?.tagName;
+    if (['INPUT', 'SELECT', 'TEXTAREA'].includes(tag)) return;
+
+    if (['1', '2', '3'].includes(event.key)) {
+      selectedLobe = Number(event.key) - 1;
+      updateUI();
+    }
+
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault();
+      ringControl(1);
+    }
+
+    if (event.key === 'ArrowRight') {
+      event.preventDefault();
+      ringControl(-1);
+    }
+
+    if (event.key.toLowerCase() === 'f') {
+      enqueueManual({
+        type: 'flip',
+        lobe: selectedLobe,
+        dir: 1
+      });
+    }
+
+    if (event.key.toLowerCase() === 'c') {
+      centerControl(event.shiftKey ? -1 : 1);
+    }
+
+    if (event.key.toLowerCase() === 'v') {
+      showFace(1 - visibleFace());
+    }
+
+    if (event.code === 'Space' && tag !== 'BUTTON') {
+      event.preventDefault();
+      toggleSolver();
+    }
+
+    if (event.key === 'Escape') {
+      interrupt();
+      drag = null;
+      canvas.style.cursor = 'grab';
+    }
+  });
+
+  // -----------------------------------------------------
+  // Resize and animation loop.
+  // -----------------------------------------------------
+
+  function resize() {
+    const width = $('viewport').clientWidth;
+    const height = $('viewport').clientHeight;
+    const aspect = width / height;
+
+    const visibleHeight = Math.max(7.35, 6.8 / aspect);
+
+    camera.left = -visibleHeight * aspect / 2;
+    camera.right = visibleHeight * aspect / 2;
+    camera.top = visibleHeight / 2;
+    camera.bottom = -visibleHeight / 2;
+
+    camera.updateProjectionMatrix();
+    renderer.setSize(width, height, false);
+  }
+
+  new ResizeObserver(resize).observe($('viewport'));
+  resize();
+  updateUI();
+
+  $('loading').style.display = 'none';
+
+  let lastFrame = 0;
+  let lastFace = -1;
+
+  renderer.setAnimationLoop(now => {
+    const dt = lastFrame ? Math.min((now - lastFrame) / 1000, 0.1) : 0.016;
+    lastFrame = now;
+
+    root.quaternion.slerp(
+      viewTarget,
+      reducedMotion ? 1 : 1 - Math.exp(-10 * dt)
+    );
+
+    tickMoves(now);
+
+    const face = visibleFace();
+
+    if (face !== lastFace) {
+      $('front').classList.toggle('active', face === 0);
+      $('back').classList.toggle('active', face === 1);
+      lastFace = face;
+    }
+
+    renderer.render(scene, camera);
+  });
+
+} catch (error) {
+  console.error(error);
+  $('loading').textContent =
+    'The puzzle could not start. Please check your internet connection ' +
+    'and use a browser with WebGL enabled. Details: ' + error.message;
+}
+</script>
+</body>
+</html>

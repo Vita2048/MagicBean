@@ -596,6 +596,8 @@ try {
   const THREE = await import('three');
   const { RoomEnvironment } =
     await import('three/addons/environments/RoomEnvironment.js');
+  const { mergeVertices } =
+    await import('three/addons/utils/BufferGeometryUtils.js');
 
   // Let the loading screen paint before generating geometry.
   await new Promise(resolve => setTimeout(resolve, 60));
@@ -605,10 +607,27 @@ try {
   const R = 0.88;
   const D = 1.52;
   const OUTER_RADIUS = 1.39;
-  const TRACK_HALF = 0.265;
+  const TRACK_HALF = 0.275;
   const ROTOR_RADIUS = 1.22;
   const GAP = 0.012;
-  const BEAN_Z = 0.265;
+  // Give the molded faces, inset tracks and beans their own distinct planes.
+  // Sized from the product photos: a thick, fully rounded toy shell with
+  // beans sitting half-sunk in deep grooves.
+  const BASE_DEPTH = 0.32;
+  const BASE_Z = -0.16;
+  const BED_Z = 0.178;
+  const FACE_DEPTH = 0.16;
+  const FACE_Z = 0.178;
+  // Large bevels + domes so the side silhouette reads as one continuous
+  // glossy pebble instead of flat plates. Values stay just under half the
+  // layer depth so the marching-cubes masks never self-intersect.
+  const BASE_BEVEL = 0.155;
+  const FACE_BEVEL = 0.095;
+  const BASE_DOME = 0.085;
+  const FACE_DOME = 0.032;
+  const DETAIL_Z = 0.438;
+  const RAISED_Z = 0.44;
+  const BEAN_Z = 0.435;
   const OUTER_SLOTS = [0, 1, 2, 8, 9];
   const INNER_SLOTS = [4, 5, 6];
   const reducedMotion =
@@ -623,8 +642,8 @@ try {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color('#e1e9ed');
 
-  const camera = new THREE.OrthographicCamera(-4, 4, 4, -4, 0.1, 60);
-  camera.position.set(0, 0, 15);
+  const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 60);
+  camera.position.set(0, 0, 13.5);
   camera.lookAt(0, 0, 0);
 
   const renderer = new THREE.WebGLRenderer({
@@ -635,7 +654,7 @@ try {
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.15;
+  renderer.toneMappingExposure = 0.88;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
@@ -653,9 +672,9 @@ try {
   room.dispose();
   pmrem.dispose();
 
-  scene.add(new THREE.HemisphereLight('#f4faff', '#7894a8', 1.8));
+  scene.add(new THREE.HemisphereLight('#d8ecf7', '#3d5a6e', 0.85));
 
-  const keyLight = new THREE.DirectionalLight('#fff6ee', 3);
+  const keyLight = new THREE.DirectionalLight('#fff8f0', 3.6);
   keyLight.position.set(-4, 6, 9);
   keyLight.castShadow = true;
   keyLight.shadow.mapSize.set(2048, 2048);
@@ -668,18 +687,23 @@ try {
   keyLight.shadow.radius = 4;
   scene.add(keyLight);
 
-  const fill = new THREE.DirectionalLight('#c8e7ff', 1.1);
+  const fill = new THREE.DirectionalLight('#a9dcff', 0.7);
   fill.position.set(5, -2, 6);
   scene.add(fill);
 
+  const rim = new THREE.DirectionalLight('#b9eaff', 1.45);
+  rim.position.set(2, 5, -6);
+  scene.add(rim);
+
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(100, 100),
-    new THREE.MeshStandardMaterial({
-      color: '#e1e9ed',
-      roughness: 1
+    new THREE.ShadowMaterial({
+      color: '#7692a3',
+      opacity: 0.18
     })
   );
-  floor.position.z = -3.8;
+  // Keep the shadow tight to the object instead of letting it float far behind it.
+  floor.position.z = -0.95;
   floor.receiveShadow = true;
   scene.add(floor);
 
@@ -687,8 +711,8 @@ try {
   root.position.y = -0.28;
   scene.add(root);
 
-  let viewYaw = -0.10;
-  let viewPitch = 0.10;
+  let viewYaw = -0.24;
+  let viewPitch = 0.16;
   const viewTarget = new THREE.Quaternion();
 
   function updateViewTarget() {
@@ -701,8 +725,8 @@ try {
   root.quaternion.copy(viewTarget);
 
   function showFace(face) {
-    viewYaw = face ? Math.PI - 0.10 : -0.10;
-    viewPitch = 0.10;
+    viewYaw = face ? Math.PI - 0.24 : -0.24;
+    viewPitch = 0.16;
     updateViewTarget();
   }
 
@@ -712,42 +736,63 @@ try {
     return direction.z >= 0 ? 0 : 1;
   }
 
+  // Colors sampled from MagicBean.jpg / MagicBean.png:
+  // outer flipping shells = saturated glossy sky blue,
+  // inner body + rotor = pale blue-grey satin, grooves = near-black navy.
   const shellMat = new THREE.MeshPhysicalMaterial({
-    color: '#80c4e8',
-    roughness: 0.29,
-    metalness: 0.035,
-    clearcoat: 0.45,
-    clearcoatRoughness: 0.28,
-    envMapIntensity: 0.7
+    color: '#5cade3',
+    roughness: 0.16,
+    metalness: 0.0,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.08,
+    envMapIntensity: 1.15,
+    specularIntensity: 1.0
   });
 
   const paleMat = new THREE.MeshPhysicalMaterial({
-    color: '#acd4f0',
-    roughness: 0.3,
-    clearcoat: 0.4,
-    clearcoatRoughness: 0.28,
-    envMapIntensity: 0.6
+    color: '#a9c6e6',
+    roughness: 0.38,
+    metalness: 0.0,
+    clearcoat: 0.3,
+    clearcoatRoughness: 0.3,
+    envMapIntensity: 0.55
   });
 
-  const coreMat = new THREE.MeshStandardMaterial({
-    color: '#4e9bc5',
-    roughness: 0.42
+  const coreMat = new THREE.MeshPhysicalMaterial({
+    color: '#3d8abf',
+    roughness: 0.32,
+    clearcoat: 0.5,
+    clearcoatRoughness: 0.25,
+    envMapIntensity: 0.7
   });
 
   const trackMat = new THREE.MeshStandardMaterial({
-    color: '#172b42',
-    roughness: 0.65
+    color: '#0b1e32',
+    roughness: 0.62,
+    metalness: 0.05
   });
 
   const accentMat = new THREE.MeshPhysicalMaterial({
-    color: '#57aedb',
-    roughness: 0.24,
-    clearcoat: 0.6
+    color: '#4a9fd3',
+    roughness: 0.22,
+    metalness: 0.0,
+    clearcoat: 0.9,
+    clearcoatRoughness: 0.12,
+    envMapIntensity: 1.0
+  });
+
+  const grooveMat = new THREE.MeshPhysicalMaterial({
+    color: '#3f8cbd',
+    roughness: 0.28,
+    clearcoat: 0.6,
+    clearcoatRoughness: 0.2,
+    envMapIntensity: 0.8
   });
 
   const holeMat = new THREE.MeshStandardMaterial({
-    color: '#173e59',
-    roughness: 0.5
+    color: '#071423',
+    roughness: 0.55,
+    metalness: 0.1
   });
 
   const pickables = [];
@@ -1044,24 +1089,61 @@ try {
     const baseShapes = traceShapes(mask);
     const faceShapes = traceShapes(solidMask);
 
-    function makeGeometry(shapes, depth, bevel) {
-      const geometry = new THREE.ExtrudeGeometry(shapes, {
+    function makeGeometry(shapes, depth, bevel, dome = 0) {
+      let geometry = new THREE.ExtrudeGeometry(shapes, {
         depth,
-        steps: 1,
+        // Extra sections let the side wall carry a smooth, molded curve.
+        steps: dome ? 12 : 1,
         bevelEnabled: bevel > 0,
         bevelSize: bevel,
         bevelThickness: bevel,
-        bevelSegments: 3,
-        curveSegments: 12
+        bevelSegments: dome ? 8 : 5,
+        curveSegments: 24
       });
+
+      if (dome) {
+        const position = geometry.attributes.position;
+
+        for (let i = 0; i < position.count; i++) {
+          const z = position.getZ(i);
+          const progress = THREE.MathUtils.clamp(z / depth, 0, 1);
+          const scale = 1 + dome * Math.sin(Math.PI * progress);
+
+          position.setX(
+            i,
+            pivot.x + (position.getX(i) - pivot.x) * scale
+          );
+          position.setY(
+            i,
+            pivot.y + (position.getY(i) - pivot.y) * scale
+          );
+        }
+
+        position.needsUpdate = true;
+
+        // ExtrudeGeometry duplicates the rim vertices.  Merge them before
+        // calculating normals so the dome receives one uninterrupted gloss
+        // highlight instead of visibly faceted vertical bands.
+        geometry.deleteAttribute('normal');
+        geometry.deleteAttribute('uv');
+        geometry = mergeVertices(geometry, 0.0001);
+        geometry.computeVertexNormals();
+      }
 
       geometry.translate(-pivot.x, -pivot.y, 0);
       return geometry;
     }
 
-    const baseGeometry = makeGeometry(baseShapes, 0.24, 0.014);
+    // A generous multi-segment bevel turns the exposed sidewall into a
+    // continuous molded curve instead of a flat band between the two faces.
+    const baseGeometry = makeGeometry(
+      baseShapes,
+      BASE_DEPTH,
+      BASE_BEVEL,
+      BASE_DOME
+    );
     const base = new THREE.Mesh(baseGeometry, coreMat);
-    base.position.z = -0.12;
+    base.position.z = BASE_Z;
     base.castShadow = true;
     base.receiveShadow = true;
     base.userData = meta;
@@ -1073,7 +1155,7 @@ try {
 
     for (const sign of [1, -1]) {
       const bed = new THREE.Mesh(bedGeometry, trackMat);
-      bed.position.z = sign * 0.123;
+      bed.position.z = sign * BED_Z;
       bed.scale.z = sign;
       bed.receiveShadow = true;
       bed.userData = meta;
@@ -1081,7 +1163,12 @@ try {
       pickables.push(bed);
     }
 
-    const faceGeometry = makeGeometry(faceShapes, 0.11, 0.018);
+    const faceGeometry = makeGeometry(
+      faceShapes,
+      FACE_DEPTH,
+      FACE_BEVEL,
+      FACE_DOME
+    );
 
     for (const sign of [1, -1]) {
       const face = new THREE.Mesh(
@@ -1089,7 +1176,7 @@ try {
         type === 'outer' ? shellMat : paleMat
       );
 
-      face.position.z = sign * 0.135;
+      face.position.z = sign * FACE_Z;
       face.scale.z = sign;
       face.castShadow = true;
       face.receiveShadow = true;
@@ -1126,34 +1213,108 @@ try {
     return mesh;
   }
 
+  // Photo-matched rims (see MagicBean.jpg / .png):
+  // - outer blue ring: shallow festoon arches hugging the edge, each with
+  //   one small embossed dot inside; tiny dots sit between arches.
+  // - 2 black flank holes per outer lobe on the blue face near the seam.
+  // - 1 black seam dot per gap on the pale fixed body, ON the plastic.
+  const seamPinGeo = new THREE.SphereGeometry(0.048, 20, 14);
+  const flankHoleGeo = new THREE.SphereGeometry(0.065, 20, 14);
+
   for (let lobe = 0; lobe < 3; lobe++) {
     const part = parts[`outer${lobe}`];
 
     for (const sign of [1, -1]) {
+      // Shallow arch grooves: wide, flat, barely proud — like the molded
+      // wave in the JPG. Long axis follows the rim tangent.
       for (let k = -2; k <= 2; k++) {
-        const angle = angles[lobe] + k * STEP;
-        const position = new THREE.Vector3(
-          centers[lobe].x + 1.275 * Math.cos(angle),
-          centers[lobe].y + 1.275 * Math.sin(angle),
-          sign * 0.258
+        const angle = angles[lobe] + k * STEP * 0.98;
+        const radial = new THREE.Vector2(Math.cos(angle), Math.sin(angle));
+        const base = new THREE.Vector3(
+          centers[lobe].x + 1.295 * radial.x,
+          centers[lobe].y + 1.295 * radial.y,
+          sign * DETAIL_Z
         );
 
         detail(
           part,
-          position,
-          new THREE.Vector3(0.078, 0.18, 0.022),
-          accentMat,
+          base,
+          new THREE.Vector3(0.095, 0.30, 0.014),
+          grooveMat,
           angle
         );
 
-        if (k % 2 === 0) {
-          detail(
-            part,
-            position.clone().setZ(sign * 0.278),
-            new THREE.Vector3(0.056, 0.056, 0.01),
-            k === 0 ? shellMat : holeMat
-          );
-        }
+        // Small embossed dot centered in each arch (same blue family).
+        detail(
+          part,
+          base.clone().setZ(sign * (DETAIL_Z + 0.016)),
+          new THREE.Vector3(0.04, 0.04, 0.012),
+          accentMat
+        );
+      }
+
+      // Tiny dots between arches, tucked toward the outer edge.
+      for (let k = -2; k <= 1; k++) {
+        const angle = angles[lobe] + (k + 0.5) * STEP * 0.98;
+        const radial = new THREE.Vector2(Math.cos(angle), Math.sin(angle));
+        const outward = radial.x * normals[lobe].x + radial.y * normals[lobe].y;
+        if (outward < 0.3) continue;
+        detail(
+          part,
+          new THREE.Vector3(
+            centers[lobe].x + 1.335 * radial.x,
+            centers[lobe].y + 1.335 * radial.y,
+            sign * (DETAIL_Z + 0.008)
+          ),
+          new THREE.Vector3(0.032, 0.032, 0.01),
+          grooveMat
+        );
+      }
+
+      // Two black flank holes per lobe on the blue face, near the seam —
+      // this is where the JPG shows them (front face, just outside beads).
+      for (const off of [1.32, -1.32]) {
+        const angle = angles[lobe] + off;
+        const radial = new THREE.Vector2(Math.cos(angle), Math.sin(angle));
+        const mesh = new THREE.Mesh(flankHoleGeo, holeMat);
+        mesh.position.set(
+          centers[lobe].x + 1.17 * radial.x - part.pivot.x,
+          centers[lobe].y + 1.17 * radial.y - part.pivot.y,
+          sign * (DETAIL_Z + 0.002)
+        );
+        mesh.scale.set(1, 1, 0.4);
+        mesh.userData = part.meta;
+        part.group.add(mesh);
+        pickables.push(mesh);
+      }
+    }
+  }
+
+  // Single black seam dots on the pale fixed body — pulled well inside
+  // the silhouette (r=1.02) so they sit ON plastic, not in the air gap.
+  // r=1.95 was outside bodyField (central r=1.28 + outer circles), which
+  // left front+back pins floating and visible as doubled dots.
+  {
+    const fixed = parts.fixed;
+    for (let lobe = 0; lobe < 3; lobe++) {
+      const a0 = angles[lobe];
+      const a1 = angles[(lobe + 1) % 3];
+      const mid = Math.atan2(
+        Math.sin(a0) + Math.sin(a1),
+        Math.cos(a0) + Math.cos(a1)
+      );
+      const pr = 1.02;
+      for (const sign of [1, -1]) {
+        const mesh = new THREE.Mesh(seamPinGeo, holeMat);
+        mesh.position.set(
+          Math.cos(mid) * pr - fixed.pivot.x,
+          Math.sin(mid) * pr - fixed.pivot.y,
+          sign * (DETAIL_Z + 0.002)
+        );
+        mesh.scale.set(1, 1, 0.4);
+        mesh.userData = fixed.meta;
+        fixed.group.add(mesh);
+        pickables.push(mesh);
       }
     }
   }
@@ -1162,17 +1323,17 @@ try {
     const geometry = new THREE.ExtrudeGeometry(shape, {
       depth,
       bevelEnabled: true,
-      bevelSize: 0.014,
-      bevelThickness: 0.014,
-      bevelSegments: 3,
-      curveSegments: 24
+      bevelSize: 0.022,
+      bevelThickness: 0.022,
+      bevelSegments: 4,
+      curveSegments: 32
     });
 
     geometry.translate(-part.pivot.x, -part.pivot.y, 0);
 
     for (const sign of [1, -1]) {
       const mesh = new THREE.Mesh(geometry, material);
-      mesh.position.z = sign * 0.263;
+      mesh.position.z = sign * RAISED_Z;
       mesh.scale.z = sign;
       mesh.castShadow = true;
       mesh.receiveShadow = true;
@@ -1228,17 +1389,18 @@ try {
     }
   }
 
-  // Three raised petals on the central carrier.
+  // Three raised petals on the central carrier, with a molded spine
+  // and tip dot like the real toy's Y-hub.
   for (let lobe = 0; lobe < 3; lobe++) {
     const angle = angles[lobe] + Math.PI / 3 - Math.PI / 2;
 
     const petal = new THREE.Shape();
-    petal.moveTo(-0.115, 0.48);
-    petal.quadraticCurveTo(-0.15, 0.76, 0, 1.08);
-    petal.quadraticCurveTo(0.15, 0.76, 0.115, 0.48);
-    petal.quadraticCurveTo(0, 0.44, -0.115, 0.48);
+    petal.moveTo(-0.125, 0.46);
+    petal.quadraticCurveTo(-0.17, 0.76, 0, 1.12);
+    petal.quadraticCurveTo(0.17, 0.76, 0.125, 0.46);
+    petal.quadraticCurveTo(0, 0.40, -0.125, 0.46);
 
-    const points = petal.getPoints(32).map(p =>
+    const points = petal.getPoints(40).map(p =>
       new THREE.Vector2(
         p.x * Math.cos(angle) - p.y * Math.sin(angle),
         p.x * Math.sin(angle) + p.y * Math.cos(angle)
@@ -1248,37 +1410,128 @@ try {
     addRaisedShape(
       parts.rotor,
       new THREE.Shape(points),
-      0.018,
+      0.02,
       paleMat
     );
+
+    // Spine + tip dot for each petal, both faces.
+    for (const sign of [1, -1]) {
+      const dir = new THREE.Vector2(Math.cos(angle), Math.sin(angle));
+      const perp = new THREE.Vector2(-dir.y, dir.x);
+      for (let s = 0; s <= 4; s++) {
+        const t = 0.58 + s * 0.11;
+        const w = 0.028 * (1 - s * 0.12);
+        detail(
+          parts.rotor,
+          new THREE.Vector3(dir.x * t, dir.y * t, sign * (RAISED_Z + 0.045)),
+          new THREE.Vector3(w, w, 0.012),
+          grooveMat
+        );
+      }
+      // Elongated leaf vein.
+      const vein = new THREE.Mesh(detailSphere, grooveMat);
+      vein.position.set(
+        dir.x * 0.82 - parts.rotor.pivot.x,
+        dir.y * 0.82 - parts.rotor.pivot.y,
+        sign * (RAISED_Z + 0.038)
+      );
+      vein.scale.set(0.022, 0.19, 0.01);
+      vein.rotation.z = angle - Math.PI / 2;
+      vein.userData = parts.rotor.meta;
+      parts.rotor.group.add(vein);
+      pickables.push(vein);
+    }
   }
 
   const capShape = new THREE.Shape();
-  capShape.absarc(0, 0, 0.43, 0, TAU, false);
-  addRaisedShape(parts.rotor, capShape, 0.085, paleMat);
+  capShape.absarc(0, 0, 0.44, 0, TAU, false);
+  addRaisedShape(parts.rotor, capShape, 0.09, paleMat);
+
+  // Recessed ring around the center cap + tiny hub dot, as in photos.
+  {
+    const ringGeo = new THREE.TorusGeometry(0.47, 0.018, 12, 64);
+    for (const sign of [1, -1]) {
+      const ring = new THREE.Mesh(ringGeo, grooveMat);
+      ring.position.set(0, 0, sign * (RAISED_Z + 0.105));
+      ring.userData = parts.rotor.meta;
+      parts.rotor.group.add(ring);
+      pickables.push(ring);
+    }
+  }
+
+  // Hex bolts on the small lobe covers — prominent in MagicBean.jpg.
+  {
+    const hexShape = new THREE.Shape();
+    for (let i = 0; i < 6; i++) {
+      const a = i * TAU / 6 + Math.PI / 6;
+      const px = 0.085 * Math.cos(a), py = 0.085 * Math.sin(a);
+      if (i === 0) hexShape.moveTo(px, py); else hexShape.lineTo(px, py);
+    }
+    hexShape.closePath();
+    const hexGeo = new THREE.ExtrudeGeometry(hexShape, {
+      depth: 0.03, bevelEnabled: true,
+      bevelSize: 0.012, bevelThickness: 0.012,
+      bevelSegments: 2, curveSegments: 6
+    });
+    for (let lobe = 0; lobe < 3; lobe++) {
+      for (const sign of [1, -1]) {
+        const host = sign === 1 ? parts[`outer${lobe}`] : parts.fixed;
+        for (const m of [hexGeo]) {
+          const bolt = new THREE.Mesh(m, paleMat);
+          bolt.position.set(
+            centers[lobe].x - host.pivot.x,
+            centers[lobe].y - host.pivot.y,
+            sign * (RAISED_Z + 0.055)
+          );
+          if (sign < 0) bolt.scale.z = -1;
+          bolt.userData = host.meta;
+          bolt.castShadow = true;
+          host.group.add(bolt);
+          pickables.push(bolt);
+        }
+        // Dark hex seam around the bolt.
+        const seam = new THREE.Mesh(
+          new THREE.TorusGeometry(0.105, 0.012, 10, 6),
+          grooveMat
+        );
+        seam.position.set(
+          centers[lobe].x - host.pivot.x,
+          centers[lobe].y - host.pivot.y,
+          sign * (RAISED_Z + 0.075)
+        );
+        seam.rotation.z = Math.PI / 6;
+        seam.userData = host.meta;
+        host.group.add(seam);
+        pickables.push(seam);
+      }
+    }
+  }
 
   // -----------------------------------------------------
   // Logical puzzle:
   // 2 faces × 3 loops × 10 positions = 60 physical beans.
   // -----------------------------------------------------
 
+  // Bean colors eyedropped from the product photos: salmon pink, soft
+  // lavender, mint cyan, golden yellow, yellow-green, and warm off-white.
   const colors = [
-    '#ee9c9b', '#a67dc9', '#64ced9',
-    '#f0ce68', '#85c88a', '#e9eadf'
+    '#e79c92', '#9d82c7', '#6fced8',
+    '#f1c94e', '#a9d170', '#e8e7dd'
   ];
 
   const beanMaterials = colors.map(color =>
     new THREE.MeshPhysicalMaterial({
       color,
-      roughness: 0.24,
-      metalness: 0.015,
-      clearcoat: 0.65,
-      clearcoatRoughness: 0.21,
-      envMapIntensity: 0.75
+      roughness: 0.13,
+      metalness: 0.0,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.06,
+      envMapIntensity: 1.25,
+      specularIntensity: 1.0
     })
   );
 
-  const beanGeometry = new THREE.SphereGeometry(0.235, 32, 24);
+  const beanGeometry = new THREE.SphereGeometry(0.265, 40, 28);
 
   function slotID(face, lobe, k) {
     return face * 30 + lobe * 10 + ((k % 10) + 10) % 10;
@@ -1998,12 +2251,7 @@ try {
     const height = $('viewport').clientHeight;
     const aspect = width / height;
 
-    const visibleHeight = Math.max(7.35, 6.8 / aspect);
-
-    camera.left = -visibleHeight * aspect / 2;
-    camera.right = visibleHeight * aspect / 2;
-    camera.top = visibleHeight / 2;
-    camera.bottom = -visibleHeight / 2;
+    camera.aspect = aspect;
 
     camera.updateProjectionMatrix();
     renderer.setSize(width, height, false);

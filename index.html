@@ -483,7 +483,7 @@ footer {
       </div>
 
       <div class="stage-hint">
-        Drag beans to circulate · Click an outer shell to flip
+        Drag beans to circulate · Click centre for 60° chamber switch · Click an outer shell to flip
       </div>
 
       <div id="loading" class="loading">
@@ -566,7 +566,7 @@ footer {
         <span class="guide-icon">↻</span>
         <div>
           <strong>Circulate</strong>
-          <p>Drag the beans around one loop to shift its colors.</p>
+          <p>Separate circles: drag beans around one rim. Chamber open: drag any bean to rotate ALL marbles around the big loop through the centre.</p>
         </div>
       </div>
 
@@ -581,8 +581,8 @@ footer {
       <div class="guide-item">
         <span class="guide-icon">✣</span>
         <div>
-          <strong>Transfer</strong>
-          <p>Rotate the central carrier to move inner beans between lobes.</p>
+          <strong>Transfer · 60° two-state</strong>
+          <p>Click the centre to switch: separate circles ↔ one central chamber where all marbles travel. Each click turns the rotor 60° and moves inner beans between lobes.</p>
         </div>
       </div>
     </section>
@@ -605,7 +605,13 @@ try {
   const TAU = Math.PI * 2;
   const STEP = TAU / 10;
   const R = 0.88;
-  const D = 1.52;
+  // D = 1.69 gives equal 60°/60° port spacing at the rotor edge
+  // (delta = 30°: intra-lobe arc = 60°, inter-lobe gap = 60°).
+  // With D = 1.52 the spacing was 70.7°/49.3°, so a 60° rotor step
+  // could never align to the fixed tracks. Equal spacing lets one
+  // rigid 60° rotor toggle between two states:
+  // even = separate circles, odd = one central chamber (big loop).
+  const D = 1.69;
   const OUTER_RADIUS = 1.39;
   const TRACK_HALF = 0.275;
   const ROTOR_RADIUS = 1.22;
@@ -629,7 +635,9 @@ try {
   const RAISED_Z = 0.44;
   const BEAN_Z = 0.435;
   const OUTER_SLOTS = [0, 1, 2, 8, 9];
-  const INNER_SLOTS = [4, 5, 6];
+  // Centre 60° transfer rings (not a fixed k-list any more):
+  // k4/k6 six-ring (full) + k5/pocket six-ring (3 beads + 3 blanks),
+  // both defined in movementDefinition in exact angular order.
   const reducedMotion =
     matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -826,6 +834,33 @@ try {
     }
 
     return value;
+  }
+
+  // Same 3-circle pattern rotated +60° about the origin.
+  // The rotor carves the UNION of the two (6 circles) plus a central
+  // pocket, so its groove pattern is 60°-symmetric: any 60° step keeps
+  // all 6 edge ports aligned to the fixed tracks. The fixed/outer
+  // parts keep the plain 3-circle pattern.
+  function trackField60(x, y) {
+    const c = 0.5, s = 0.8660254037844386;
+    return trackField(x * c + y * s, -x * s + y * c);
+  }
+
+  const POCKET_RADIUS = 0.85;
+
+  function pocketField(x, y) {
+    return Math.hypot(x, y) - POCKET_RADIUS;
+  }
+
+  // Wide central chamber for the rotor only: pocket UNION 6 narrow
+  // channels. 60°-symmetric, so rotor rotation is invisible in the
+  // carving — the visible toggle comes from the 3 raised radial walls.
+  function rotorTrackField(x, y) {
+    return Math.min(
+      pocketField(x, y),
+      trackField(x, y),
+      trackField60(x, y)
+    );
   }
 
   function outwardDistance(x, y, lobe) {
@@ -1083,7 +1118,7 @@ try {
 
     const solidMask = (x, y) => Math.max(
       mask(x, y),
-      -trackField(x, y)
+      type === 'rotor' ? -rotorTrackField(x, y) : -trackField(x, y)
     );
 
     const baseShapes = traceShapes(mask);
@@ -1193,6 +1228,28 @@ try {
   addPart('fixed');
   addPart('rotor');
   for (let lobe = 0; lobe < 3; lobe++) addPart('outer', lobe);
+
+  // -----------------------------------------------------
+  // Two-state central rotor: 60° steps, even = separate circles,
+  // odd = one central chamber (big loop). The carving above is
+  // 60°-symmetric (pocket + 6 channels) so it stays aligned on every
+  // step; the visible toggle comes from the 3 raised radial walls
+  // below (120°-symmetric). Walls at gap angles block the cross
+  // connections (separate), walls at lobe angles block the same
+  // connections (chamber). D = 1.69 makes the 6 edge ports exactly
+  // 60° apart so both wall sets fit cleanly.
+  // -----------------------------------------------------
+
+  // Rotor position in 60° steps (0-5). Even = separate circles
+  // (marbles rotate in each circle), odd = chamber (all marbles
+  // can travel through the centre). Bead permutation still moves
+  // inner slots lobe->lobe (120° logical) while the plastic rotor
+  // turns 60° — the wide pocket hides the relative slide.
+  let rotorRotation = 0;
+
+  function rotorIsChamber() {
+    return (rotorRotation % 2 + 2) % 2 === 1;
+  }
 
   // -----------------------------------------------------
   // Molded decorative details, present on both faces.
@@ -1343,12 +1400,13 @@ try {
     }
   }
 
-  // Split hexagonal hub details follow the lobe's actual seam.
+  // Split hub details follow the lobe's actual seam. Gap 0.030 keeps a
+  // visible seam groove after the 0.022 raised-shape bevel (0.030 > 0.022).
   function clipPolygon(points, normal, center, sign) {
     const output = [];
     const distance = p =>
       sign * ((p.x - center.x) * normal.x +
-              (p.y - center.y) * normal.y) - 0.016;
+              (p.y - center.y) * normal.y) - 0.030;
 
     for (let i = 0; i < points.length; i++) {
       const a = points[i];
@@ -1365,15 +1423,20 @@ try {
     return output;
   }
 
+  // Large split lobe hubs like the real toy (second photo): raised disks
+  // filling the lobe centres so beads hug them, split outer/inner halves
+  // (outer half flips with the shell, inner half stays). Radius 0.55
+  // leaves 0.065 clearance to bead inner edges (0.615), forming clean
+  // inner groove walls. Both faces via addRaisedShape.
   for (let lobe = 0; lobe < 3; lobe++) {
     const c = centers[lobe];
     const points = [];
 
-    for (let i = 0; i < 6; i++) {
-      const angle = angles[lobe] + i * TAU / 6;
+    for (let i = 0; i < 32; i++) {
+      const angle = i * TAU / 32;
       points.push(new THREE.Vector2(
-        c.x + 0.22 * Math.cos(angle),
-        c.y + 0.22 * Math.sin(angle)
+        c.x + 0.55 * Math.cos(angle),
+        c.y + 0.55 * Math.sin(angle)
       ));
     }
 
@@ -1383,22 +1446,31 @@ try {
       addRaisedShape(
         sign === 1 ? parts[`outer${lobe}`] : parts.fixed,
         new THREE.Shape(clipped),
-        0.035,
+        0.06,
         paleMat
       );
     }
   }
 
-  // Three raised petals on the central carrier, with a molded spine
-  // and tip dot like the real toy's Y-hub.
+  // Three raised radial walls on the central carrier — chunky Y-hub arms
+  // like the real toy (second photo): wide enough to read as solid
+  // molded arms, still narrow enough to leave bead ports open.
+  // Together with the 60°-symmetric pocket + 6 channels they form the
+  // two-state chamber: walls at gap angles (30/150/270) block the cross
+  // connections so each circle stays separate; rotated 60° to lobe
+  // angles they block the same connections so all marbles share one
+  // central chamber. Walls run from under the centre cap (r=0.12) to
+  // the rotor edge (r=1.18) so beads cannot slip around either end.
   for (let lobe = 0; lobe < 3; lobe++) {
-    const angle = angles[lobe] + Math.PI / 3 - Math.PI / 2;
+    const angle = angles[lobe] - Math.PI / 3;
 
     const petal = new THREE.Shape();
-    petal.moveTo(-0.125, 0.46);
-    petal.quadraticCurveTo(-0.17, 0.76, 0, 1.12);
-    petal.quadraticCurveTo(0.17, 0.76, 0.125, 0.46);
-    petal.quadraticCurveTo(0, 0.40, -0.125, 0.46);
+    petal.moveTo(-0.22, 0.12);
+    petal.lineTo(-0.22, 0.90);
+    petal.quadraticCurveTo(-0.21, 1.08, 0, 1.18);
+    petal.quadraticCurveTo(0.21, 1.08, 0.22, 0.90);
+    petal.lineTo(0.22, 0.12);
+    petal.quadraticCurveTo(0, 0.05, -0.22, 0.12);
 
     const points = petal.getPoints(40).map(p =>
       new THREE.Vector2(
@@ -1459,57 +1531,70 @@ try {
     }
   }
 
-  // Hex bolts on the small lobe covers — prominent in MagicBean.jpg.
+  // Hex bolts on the lobe hubs, split with the hubs like the real toy
+  // (second photo shows the split line running through each hex).
+  // Whole bolts would bridge the outer/fixed seam and jam the flip,
+  // so each hex is clipped into outer/inner halves. Front halves sit on
+  // the large-hub tops (z+), back halves mirrored (z-, scale -1).
+  // The old dark torus seam ring bridged too, so it is removed — the
+  // 0.032 clip gap itself reads as the seam.
   {
-    const hexShape = new THREE.Shape();
+    const hexPoints = [];
     for (let i = 0; i < 6; i++) {
       const a = i * TAU / 6 + Math.PI / 6;
-      const px = 0.085 * Math.cos(a), py = 0.085 * Math.sin(a);
-      if (i === 0) hexShape.moveTo(px, py); else hexShape.lineTo(px, py);
+      hexPoints.push(new THREE.Vector2(
+        0.085 * Math.cos(a), 0.085 * Math.sin(a)
+      ));
     }
-    hexShape.closePath();
-    const hexGeo = new THREE.ExtrudeGeometry(hexShape, {
-      depth: 0.03, bevelEnabled: true,
-      bevelSize: 0.012, bevelThickness: 0.012,
-      bevelSegments: 2, curveSegments: 6
-    });
+    function hexHalf(lobe, halfSign) {
+      const c = centers[lobe];
+      const world = hexPoints.map(p =>
+        new THREE.Vector2(p.x + c.x, p.y + c.y)
+      );
+      const clipped = clipPolygon(world, normals[lobe], c, halfSign);
+      // back to lobe-local for ExtrudeGeometry (translated by -pivot later
+      // manually here via position, so build around origin)
+      return new THREE.Shape(clipped.map(p =>
+        new THREE.Vector2(p.x - c.x, p.y - c.y)
+      ));
+    }
     for (let lobe = 0; lobe < 3; lobe++) {
-      for (const sign of [1, -1]) {
-        const host = sign === 1 ? parts[`outer${lobe}`] : parts.fixed;
-        for (const m of [hexGeo]) {
-          const bolt = new THREE.Mesh(m, paleMat);
+      for (const halfSign of [1, -1]) {
+        const shape = hexHalf(lobe, halfSign);
+        if (!shape.getPoints().length) continue;
+        const geo = new THREE.ExtrudeGeometry(shape, {
+          depth: 0.03, bevelEnabled: true,
+          bevelSize: 0.012, bevelThickness: 0.012,
+          bevelSegments: 2, curveSegments: 6
+        });
+        for (const faceSign of [1, -1]) {
+          const host = halfSign === 1
+            ? parts[`outer${lobe}`] : parts.fixed;
+          const bolt = new THREE.Mesh(geo, paleMat);
           bolt.position.set(
             centers[lobe].x - host.pivot.x,
             centers[lobe].y - host.pivot.y,
-            sign * (RAISED_Z + 0.055)
+            faceSign * (RAISED_Z + 0.085)
           );
-          if (sign < 0) bolt.scale.z = -1;
+          if (faceSign < 0) bolt.scale.z = -1;
           bolt.userData = host.meta;
           bolt.castShadow = true;
           host.group.add(bolt);
           pickables.push(bolt);
         }
-        // Dark hex seam around the bolt.
-        const seam = new THREE.Mesh(
-          new THREE.TorusGeometry(0.105, 0.012, 10, 6),
-          grooveMat
-        );
-        seam.position.set(
-          centers[lobe].x - host.pivot.x,
-          centers[lobe].y - host.pivot.y,
-          sign * (RAISED_Z + 0.075)
-        );
-        seam.rotation.z = Math.PI / 6;
-        seam.userData = host.meta;
-        host.group.add(seam);
-        pickables.push(seam);
       }
     }
   }
 
   // -----------------------------------------------------
   // Logical puzzle:
-  // 2 faces × 3 loops × 10 positions = 60 physical beans.
+  // 60 physical beans live in 66 slots: 2 faces × 30 lobe slots
+  // (3 lobes × 10) + 2 faces × 3 central pocket slots (chamber gaps).
+  // Even rotor steps (separate): pockets empty, lobes full.
+  // Odd steps (chamber): 3 lobe-k5 slots empty per face, pockets full.
+  // 3 vacancies per face always — beads and blanks permute together,
+  // exactly like the real toy where marbles sit in the chamber.
+  // Both beads and plastic move 60° on every centre click.
   // -----------------------------------------------------
 
   // Bean colors eyedropped from the product photos: salmon pink, soft
@@ -1533,19 +1618,46 @@ try {
 
   const beanGeometry = new THREE.SphereGeometry(0.265, 40, 28);
 
+  // Lobe slots: 33 per face (30 lobe + 3 pocket), 66 total.
+  // face 0: 0-29 lobe, 30-32 pocket; face 1: 33-62 lobe, 63-65 pocket.
   function slotID(face, lobe, k) {
-    return face * 30 + lobe * 10 + ((k % 10) + 10) % 10;
+    return face * 33 + lobe * 10 + ((k % 10) + 10) % 10;
   }
+
+  function pocketID(face, p) {
+    return face * 33 + 30 + ((p % 3) + 3) % 3;
+  }
+
+  // Pocket gaps between lobes (chamber transit positions).
+  // Same ring radius as lobe-k5 (D - R = 0.81) so the six together
+  // (3 lobe-k5 + 3 pocket) form an exact 60°-symmetric ring: any 60°
+  // rotation about the origin maps the set onto itself with no snap.
+  const POCKET_RING = D - R;
+  const POCKET_GAPS = [0, 1, 2].map(i => Math.PI / 6 + i * TAU / 3);
 
   function decode(id) {
-    return {
-      face: Math.floor(id / 30),
-      lobe: Math.floor((id % 30) / 10),
-      k: id % 10
-    };
+    const face = id < 33 ? 0 : 1;
+    const local = id - face * 33;
+    if (local < 30) {
+      return {
+        face,
+        lobe: Math.floor(local / 10),
+        k: local % 10,
+        pocket: -1
+      };
+    }
+    return { face, lobe: -1, k: -1, pocket: local - 30 };
   }
 
-  function slotPosition(face, lobe, k) {
+  function slotPosition(face, lobe, k, pocket = -1) {
+    if (pocket >= 0) {
+      const a = POCKET_GAPS[((pocket % 3) + 3) % 3];
+      return new THREE.Vector3(
+        POCKET_RING * Math.cos(a),
+        POCKET_RING * Math.sin(a),
+        face === 0 ? BEAN_Z : -BEAN_Z
+      );
+    }
     const angle = angles[lobe] + k * STEP;
 
     return new THREE.Vector3(
@@ -1555,8 +1667,8 @@ try {
     );
   }
 
-  const slots = [];
-  const beans = [];
+  const slots = new Array(66);
+  const solvedState = new Array(66).fill(null);
 
   for (let face = 0; face < 2; face++) {
     for (let lobe = 0; lobe < 3; lobe++) {
@@ -1565,7 +1677,7 @@ try {
         const target = face * 3 + lobe;
         const position = slotPosition(face, lobe, k);
 
-        slots[id] = { face, lobe, k, target, position };
+        slots[id] = { face, lobe, k, pocket: -1, target, position };
 
         const mesh = new THREE.Mesh(
           beanGeometry,
@@ -1579,12 +1691,21 @@ try {
         root.add(mesh);
         pickables.push(mesh);
 
-        beans[id] = { mesh, color: target };
+        solvedState[id] = { mesh, color: target };
       }
+    }
+    // Central pocket slots: transit only, no colour target.
+    for (let p = 0; p < 3; p++) {
+      const id = pocketID(face, p);
+      slots[id] = {
+        face, lobe: -1, k: -1, pocket: p, target: -1,
+        position: slotPosition(face, -1, -1, p)
+      };
+      solvedState[id] = null;
     }
   }
 
-  let state = beans.slice();
+  let state = solvedState.slice();
   let history = [];
   let queue = [];
   let active = null;
@@ -1594,8 +1715,14 @@ try {
   let drag = null;
 
   function countMatches() {
+    // Pocket slots (target -1) never count; empty lobe slots mismatch.
+    // Even (separate, solved): 60. Odd (chamber): max 54 (6 lobe-k5 in
+    // transit in the pocket).
     return state.reduce(
-      (total, bean, i) => total + Number(bean.color === slots[i].target),
+      (total, bean, i) =>
+        total + Number(
+          !!bean && slots[i].target >= 0 && bean.color === slots[i].target
+        ),
       0
     );
   }
@@ -1606,6 +1733,7 @@ try {
 
   function snapBeans() {
     state.forEach((bean, id) => {
+      if (!bean) return;
       bean.mesh.position.copy(slots[id].position);
       bean.mesh.userData.slot = id;
     });
@@ -1626,7 +1754,11 @@ try {
         ? 'Scrambling'
         : active || queue.length
           ? 'Turning'
-          : isSolved() ? 'Solved' : 'Your move';
+          : isSolved()
+            ? 'Solved · Separate circles'
+            : rotorIsChamber()
+              ? 'Chamber open · all marbles travel'
+              : 'Separate circles';
 
     $('status').textContent = text;
     $('status').classList.toggle('busy', solving || scrambling);
@@ -1686,8 +1818,8 @@ try {
     }
 
     const period =
-      move.type === 'ring' ? 10 :
-      move.type === 'center' ? 3 : 2;
+      move.type === 'ring' ? 30 : // LCM(separate 10-cycle, chamber 30-loop)
+      move.type === 'center' ? 6 : 2; // 6 = LCM(3-bead cycle, 2-gate states)
 
     if (history.length >= period) {
       const tail = history.slice(-period);
@@ -1700,37 +1832,98 @@ try {
     }
   }
 
+  function bigLoopOrder(face) {
+    // One 30-cycle per face through every open slot in chamber state:
+    // 27 lobe non-k5 (k5 walled off) + 3 pocket. CCW order (dir +1).
+    // l0k4 -> gap150 -> l1k6 -> ...outer l1... -> l1k4 -> gap270 ->
+    // l2k6 -> ...outer l2... -> l2k4 -> gap30 -> l0k6 -> ...outer l0...
+    // -> l0k3 -> back to l0k4. All 30 beads move together, no blanks:
+    // a fully packed bead necklace rotating as one — all marbles travel.
+    const L = (lobe, k) => slotID(face, lobe, k);
+    const P = p => pocketID(face, p);
+    return [
+      L(0, 4), P(1),
+      L(1, 6), L(1, 7), L(1, 8), L(1, 9), L(1, 0),
+      L(1, 1), L(1, 2), L(1, 3), L(1, 4), P(2),
+      L(2, 6), L(2, 7), L(2, 8), L(2, 9), L(2, 0),
+      L(2, 1), L(2, 2), L(2, 3), L(2, 4), P(0),
+      L(0, 6), L(0, 7), L(0, 8), L(0, 9), L(0, 0),
+      L(0, 1), L(0, 2), L(0, 3)
+    ];
+  }
+
   function movementDefinition(move) {
     const mappings = [];
     let pivot = new THREE.Vector3();
     let axis = new THREE.Vector3(0, 0, 1);
+    // Centre: BOTH beads and plastic move 60° (same angle, same
+    // quaternion). Two exact 60°-symmetric rings permute:
+    // - k4/k6 six-ring (6 beads, full, no blanks; ~4° off ideal, the
+    //   tiny end snap reads as the mechanical detent click);
+    // - k5/pocket six-ring (3 beads + 3 blanks, exact: lobe-k5 and
+    //   pocket share ring radius 0.81 at 60° spacing).
+    // Rings include blank (null) sources so vacancies permute too.
+    // Ring drags are state-dependent (checked at execution time):
+    // even (separate) = rigid 10-cycle in one rim; odd (chamber) =
+    // big 30-loop through all rims + pocket so ALL marbles travel.
     let angle;
+    let partAngle;
     let part = null;
+    let lerp = false;
 
     if (move.type === 'ring') {
-      pivot.copy(centers[move.lobe]);
-      angle = move.dir * STEP;
+      if (rotorIsChamber()) {
+        // Chamber open: ignore lobe, circulate the whole face loop.
+        // No plastic moves (rotor walls stay); beads lerp slot-to-slot
+        // (a rigid rotation about one lobe would fling far beads off).
+        const order = bigLoopOrder(move.face);
+        for (let i = 0; i < order.length; i++) {
+          mappings.push([
+            order[i],
+            order[(i + move.dir + order.length) % order.length]
+          ]);
+        }
+        angle = 0;
+        partAngle = 0;
+        lerp = true;
+      } else {
+        pivot.copy(centers[move.lobe]);
+        angle = move.dir * STEP;
+        partAngle = angle;
 
-      for (let k = 0; k < 10; k++) {
-        mappings.push([
-          slotID(move.face, move.lobe, k),
-          slotID(move.face, move.lobe, k + move.dir)
-        ]);
+        for (let k = 0; k < 10; k++) {
+          mappings.push([
+            slotID(move.face, move.lobe, k),
+            slotID(move.face, move.lobe, k + move.dir)
+          ]);
+        }
       }
     }
 
     if (move.type === 'center') {
-      angle = move.dir * TAU / 3;
+      angle = move.dir * TAU / 6; // 60° for beads AND plastic
+      partAngle = angle;
       part = parts.rotor;
 
       for (let face = 0; face < 2; face++) {
-        for (let lobe = 0; lobe < 3; lobe++) {
-          const destination = (lobe + move.dir + 3) % 3;
-
-          for (const k of INNER_SLOTS) {
+        // k4/k6 six-ring in angular order (full, no blanks).
+        const ring46 = [
+          slotID(face, 0, 6), slotID(face, 0, 4),
+          slotID(face, 1, 6), slotID(face, 1, 4),
+          slotID(face, 2, 6), slotID(face, 2, 4)
+        ];
+        // k5/pocket six-ring in angular order
+        // (gap30, lobe0k5, gap150, lobe1k5, gap270, lobe2k5).
+        const ring5p = [
+          pocketID(face, 0), slotID(face, 0, 5),
+          pocketID(face, 1), slotID(face, 1, 5),
+          pocketID(face, 2), slotID(face, 2, 5)
+        ];
+        for (const ring of [ring46, ring5p]) {
+          for (let i = 0; i < ring.length; i++) {
             mappings.push([
-              slotID(face, lobe, k),
-              slotID(face, destination, k)
+              ring[i],
+              ring[(i + move.dir + ring.length) % ring.length]
             ]);
           }
         }
@@ -1741,6 +1934,7 @@ try {
       pivot.copy(centers[move.lobe]);
       axis.copy(normals[move.lobe]);
       angle = move.dir * Math.PI;
+      partAngle = angle;
       part = parts[`outer${move.lobe}`];
 
       for (let face = 0; face < 2; face++) {
@@ -1753,7 +1947,7 @@ try {
       }
     }
 
-    return { mappings, pivot, axis, angle, part };
+    return { mappings, pivot, axis, angle, partAngle, part, lerp };
   }
 
   function startMove(move, now) {
@@ -1761,8 +1955,9 @@ try {
     const speed = Number($('speed').value);
 
     const base =
-      move.type === 'ring' ? 210 :
-      move.type === 'center' ? 660 : 850;
+      move.type === 'ring'
+        ? (definition.lerp ? 520 : 210) // big loop travels farther
+        : move.type === 'center' ? 380 : 850; // short 60° click
 
     const moving = definition.mappings.map(([from, to]) => ({
       bean: state[from],
@@ -1774,6 +1969,9 @@ try {
       ...move,
       ...definition,
       moving,
+      partStart: definition.part
+        ? definition.part.group.quaternion.clone()
+        : null,
       startTime: now,
       duration: reducedMotion
         ? 50
@@ -1794,13 +1992,19 @@ try {
       state[item.to] = item.bean;
     }
 
-    if (completed.part) {
-      // Both faces and the decorative patterns are symmetric
-      // under the part's legal rotation.
-      completed.part.group.quaternion.identity();
-    }
-
+    // Rotor keeps its accumulated 60° orientation (two-state toggle);
+    // its carving is 60°-symmetric so it stays aligned. Flip parts are
+    // 180° front/back symmetric; accumulate as well to avoid a snap.
+    // (Previously the rotor was reset to identity, which destroyed the
+    // 60° toggle state.)
     snapBeans();
+
+    // Track 60° steps for chamber/separate UI state (0-5, even/odd).
+    // completed.dir is the actual signed step just animated (undo moves
+    // already carry the opposite sign), so always add it.
+    if (completed.type === 'center') {
+      rotorRotation = (rotorRotation + completed.dir + 6) % 6;
+    }
 
     if (completed.source === 'undo') {
       history.pop();
@@ -1819,7 +2023,9 @@ try {
     updateUI();
   }
 
-  const turnQuaternion = new THREE.Quaternion();
+  const beadQuaternion = new THREE.Quaternion();
+  const partQuaternion = new THREE.Quaternion();
+  const partDelta = new THREE.Quaternion();
 
   function tickMoves(now) {
     if (!active) {
@@ -1850,20 +2056,39 @@ try {
 
     const eased = t * t * (3 - 2 * t);
 
-    turnQuaternion.setFromAxisAngle(
-      active.axis,
-      active.angle * eased
-    );
+    if (active.lerp) {
+      // Big chamber loop: every bead slides slot-to-slot along the
+      // track (a rigid rotation about one lobe would fling far beads
+      // off). All 30 move together like a bead necklace, no blanks.
+      for (const item of active.moving) {
+        if (!item.bean) continue;
+        item.bean.mesh.position.copy(item.start).lerp(
+          slots[item.to].position, eased
+        );
+      }
+    } else {
+      beadQuaternion.setFromAxisAngle(
+        active.axis,
+        active.angle * eased
+      );
 
-    for (const item of active.moving) {
-      item.bean.mesh.position.copy(item.start)
-        .sub(active.pivot)
-        .applyQuaternion(turnQuaternion)
-        .add(active.pivot);
-    }
+      partDelta.setFromAxisAngle(
+        active.axis,
+        (active.partAngle ?? active.angle) * eased
+      );
 
-    if (active.part) {
-      active.part.group.quaternion.copy(turnQuaternion);
+      for (const item of active.moving) {
+        if (!item.bean) continue; // vacancy: state permutes, nothing to draw
+        item.bean.mesh.position.copy(item.start)
+          .sub(active.pivot)
+          .applyQuaternion(beadQuaternion)
+          .add(active.pivot);
+      }
+
+      if (active.part && active.partStart) {
+        active.part.group.quaternion.copy(active.partStart)
+          .multiply(partDelta);
+      }
     }
 
     if (t === 1) finishMove();
@@ -1921,12 +2146,13 @@ try {
     solving = false;
     turns = 0;
     drag = null;
+    rotorRotation = 0;
 
     for (const part of Object.values(parts)) {
       part.group.quaternion.identity();
     }
 
-    state = beans.slice();
+    state = solvedState.slice();
     snapBeans();
     showFace(0);
     updateUI();
@@ -2051,17 +2277,29 @@ try {
 
     if (data?.kind === 'bean') {
       const slot = decode(data.slot);
-      selectedLobe = slot.lobe;
       const p = getLocalPoint(event, slot.face);
 
-      if (p) {
-        drag.mode = 'ring';
-        drag.face = slot.face;
-        drag.lobe = slot.lobe;
-        drag.angle = Math.atan2(
-          p.y - centers[slot.lobe].y,
-          p.x - centers[slot.lobe].x
-        );
+      if (slot.pocket >= 0) {
+        // Chamber bead: drags the big 30-loop (all marbles travel).
+        // Pockets only hold beads in chamber state; in separate state
+        // they are empty (walls fill them) so this only triggers odd.
+        if (p) {
+          drag.mode = 'ring';
+          drag.face = slot.face;
+          drag.lobe = -1; // big loop uses face only, lobe ignored
+          drag.angle = Math.atan2(p.y, p.x);
+        }
+      } else {
+        selectedLobe = slot.lobe;
+        if (p) {
+          drag.mode = 'ring';
+          drag.face = slot.face;
+          drag.lobe = slot.lobe;
+          drag.angle = Math.atan2(
+            p.y - centers[slot.lobe].y,
+            p.x - centers[slot.lobe].x
+          );
+        }
       }
     } else if (data?.kind === 'center') {
       const face = visibleFace();
@@ -2113,9 +2351,9 @@ try {
     const p = getLocalPoint(event, drag.face);
     if (!p) return;
 
-    const center = drag.mode === 'ring'
+    const center = drag.mode === 'ring' && drag.lobe >= 0
       ? centers[drag.lobe]
-      : new THREE.Vector3();
+      : new THREE.Vector3(); // big-loop pocket drags + centre about origin
 
     if (Math.hypot(p.x - center.x, p.y - center.y) < 0.18) return;
 
@@ -2123,7 +2361,7 @@ try {
     drag.accumulated += angularDifference(angle, drag.angle);
     drag.angle = angle;
 
-    const threshold = drag.mode === 'ring' ? STEP : TAU / 3;
+    const threshold = drag.mode === 'ring' ? STEP : TAU / 6; // 60° gate click
 
     while (Math.abs(drag.accumulated) >= threshold) {
       const dir = Math.sign(drag.accumulated);

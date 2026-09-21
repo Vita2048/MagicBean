@@ -1,0 +1,11 @@
+{
+  "name": "magic-bean-puzzle",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node tests/geometry.test.mjs"
+  },
+  "devDependencies": {
+    "three": "0.164.1"
+  }
+}

@@ -612,25 +612,19 @@ try {
   // rigid 60° rotor toggle between two states:
   // even = separate circles, odd = one central chamber (big loop).
   const D = 1.69;
-  const OUTER_RADIUS = 1.39;
+  const OUTER_RADIUS = 1.50;
   const TRACK_HALF = 0.275;
   const ROTOR_RADIUS = 1.22;
   const GAP = 0.012;
-  // Give the molded faces, inset tracks and beans their own distinct planes.
-  // Sized from the product photos: a thick, fully rounded toy shell with
-  // beans sitting half-sunk in deep grooves.
-  const BASE_DEPTH = 0.32;
-  const BASE_Z = -0.16;
+  // Rounded plastic stays inside each mechanical region. Insetting before
+  // beveling preserves the seam clearance, including throughout a flip.
+  const BASE_DEPTH = 0.28;
+  const BASE_Z = -0.14;
   const BED_Z = 0.178;
-  const FACE_DEPTH = 0.16;
+  const FACE_DEPTH = 0.205;
   const FACE_Z = 0.178;
-  // Large bevels + domes so the side silhouette reads as one continuous
-  // glossy pebble instead of flat plates. Values stay just under half the
-  // layer depth so the marching-cubes masks never self-intersect.
-  const BASE_BEVEL = 0.155;
-  const FACE_BEVEL = 0.095;
-  const BASE_DOME = 0.085;
-  const FACE_DOME = 0.032;
+  const BASE_BEVEL = 0.10;
+  const FACE_BEVEL = 0.05;
   const DETAIL_Z = 0.438;
   const RAISED_Z = 0.44;
   const BEAN_Z = 0.435;
@@ -836,19 +830,12 @@ try {
     return value;
   }
 
-  // One continuous molded Y, as in the reference photos: three circular
-  // scallops cut into a disk leave broad, curved ends between the lobes.
-  // Its concave sides follow the OUTSIDE of each marble track. Rotating
-  // this same 120°-symmetric piece by 60° opens the shared chamber.
-  const ROTOR_BEVEL = 0.035;
+  // The three annular grooves leave a connected Y AND three small hub
+  // crescents on the rotor. Those crescents rotate from the lobe hubs to
+  // the gaps between lobes, as shown in MagicBeanRotationTrick.jpg.
+  const ROTOR_BEVEL = 0.018;
   function rotorTrackField(x, y) {
-    let value = Infinity;
-    for (const c of centers) {
-      value = Math.min(value,
-        Math.hypot(x - c.x, y - c.y) -
-        (R + TRACK_HALF + ROTOR_BEVEL));
-    }
-    return value;
+    return trackField(x, y);
   }
 
   function outwardDistance(x, y, lobe) {
@@ -916,9 +903,10 @@ try {
   }
 
   function traceShapes(field) {
-    const count = 230;
-    const min = -3.13;
-    const step = 6.26 / count;
+    const extent = D + OUTER_RADIUS + 0.15;
+    const count = Math.ceil(2 * extent / 0.024);
+    const min = -extent;
+    const step = 2 * extent / count;
     const stride = count + 1;
     const values = new Float64Array(stride * stride);
 
@@ -1109,62 +1097,58 @@ try {
       type === 'rotor' ? -rotorTrackField(x, y) : -trackField(x, y)
     );
 
-    const baseShapes = traceShapes(mask);
-    const faceShapes = traceShapes(solidMask);
+    // ExtrudeGeometry expands contours by bevelSize. Erode the field by
+    // that amount first: the final silhouette never crosses a split plane
+    // or the rotor circle. Do not scale XY to simulate a dome: the fixed
+    // and rotating halves have different pivots and that expansion jams them.
+    const baseShapes = traceShapes((x, y) => mask(x, y) + BASE_BEVEL);
+    const faceBevel = type === 'rotor' ? ROTOR_BEVEL : FACE_BEVEL;
+    const faceShapes = traceShapes((x, y) => solidMask(x, y) + faceBevel);
 
-    function makeGeometry(shapes, depth, bevel, dome = 0) {
+    function makeGeometry(shapes, depth, bevel, bevelHeight = bevel) {
       let geometry = new THREE.ExtrudeGeometry(shapes, {
         depth,
-        // Extra sections let the side wall carry a smooth, molded curve.
-        steps: dome ? 12 : 1,
+        steps: 1,
         bevelEnabled: bevel > 0,
         bevelSize: bevel,
-        bevelThickness: bevel,
-        bevelSegments: dome ? 8 : 5,
-        curveSegments: 24
+        bevelThickness: bevelHeight,
+        bevelSegments: 8,
+        curveSegments: 32
       });
-
-      if (dome) {
-        const position = geometry.attributes.position;
-
-        for (let i = 0; i < position.count; i++) {
-          const z = position.getZ(i);
-          const progress = THREE.MathUtils.clamp(z / depth, 0, 1);
-          const scale = 1 + dome * Math.sin(Math.PI * progress);
-
-          position.setX(
-            i,
-            pivot.x + (position.getX(i) - pivot.x) * scale
-          );
-          position.setY(
-            i,
-            pivot.y + (position.getY(i) - pivot.y) * scale
-          );
+      // Marching contours approximate arcs and acute corners. Project any
+      // tiny bevel overshoot back to the exact mechanical boundary before
+      // computing normals; this also keeps mirrored halves identical.
+      const position = geometry.attributes.position;
+      for (let i = 0; i < position.count; i++) {
+        let x = position.getX(i), y = position.getY(i);
+        const radius = Math.hypot(x, y);
+        if (type === 'rotor' && radius > ROTOR_RADIUS - GAP) {
+          x *= (ROTOR_RADIUS - GAP) / radius;
+          y *= (ROTOR_RADIUS - GAP) / radius;
+        } else if (type === 'fixed' && radius < ROTOR_RADIUS + GAP) {
+          x *= (ROTOR_RADIUS + GAP) / radius;
+          y *= (ROTOR_RADIUS + GAP) / radius;
         }
-
-        position.needsUpdate = true;
-
-        // ExtrudeGeometry duplicates the rim vertices.  Merge them before
-        // calculating normals so the dome receives one uninterrupted gloss
-        // highlight instead of visibly faceted vertical bands.
-        geometry.deleteAttribute('normal');
-        geometry.deleteAttribute('uv');
-        geometry = mergeVertices(geometry, 0.0001);
-        geometry.computeVertexNormals();
+        for (let j = 0; j < 3; j++) {
+          if (type === 'rotor' || (type === 'outer' && j !== lobe)) continue;
+          const distance = outwardDistance(x, y, j);
+          const correction = type === 'outer'
+            ? Math.max(0, GAP - distance)
+            : Math.min(0, -GAP - distance);
+          x += normals[j].x * correction;
+          y += normals[j].y * correction;
+        }
+        position.setXY(i, x, y);
       }
-
+      geometry.deleteAttribute('normal');
+      geometry.deleteAttribute('uv');
+      geometry = mergeVertices(geometry, 0.0001);
+      geometry.computeVertexNormals();
       geometry.translate(-pivot.x, -pivot.y, 0);
       return geometry;
     }
 
-    // A generous multi-segment bevel turns the exposed sidewall into a
-    // continuous molded curve instead of a flat band between the two faces.
-    const baseGeometry = makeGeometry(
-      baseShapes,
-      BASE_DEPTH,
-      BASE_BEVEL,
-      BASE_DOME
-    );
+    const baseGeometry = makeGeometry(baseShapes, BASE_DEPTH, BASE_BEVEL, 0.025);
     const base = new THREE.Mesh(baseGeometry, coreMat);
     base.position.z = BASE_Z;
     base.castShadow = true;
@@ -1174,7 +1158,7 @@ try {
     pickables.push(base);
 
     // Dark beds sit below the raised molded face.
-    const bedGeometry = makeGeometry(baseShapes, 0.008, 0);
+    const bedGeometry = makeGeometry(traceShapes(mask), 0.008, 0);
 
     for (const sign of [1, -1]) {
       const bed = new THREE.Mesh(bedGeometry, trackMat);
@@ -1186,26 +1170,33 @@ try {
       pickables.push(bed);
     }
 
-    const faceGeometry = makeGeometry(
-      faceShapes,
-      type === 'rotor' ? FACE_DEPTH + FACE_BEVEL - ROTOR_BEVEL : FACE_DEPTH,
-      type === 'rotor' ? ROTOR_BEVEL : FACE_BEVEL,
-      type === 'rotor' ? 0 : FACE_DOME
-    );
+    const faceDepth = FACE_DEPTH + FACE_BEVEL - faceBevel;
+    const faceLayers = type === 'outer'
+      ? [
+          // The blue shell and pale hub are disconnected islands of the
+          // same rotating half, with the annular marble channel between.
+          { material: shellMat, shapes: traceShapes((x, y) => Math.max(
+              solidMask(x, y), R - Math.hypot(x - pivot.x, y - pivot.y)
+            ) + faceBevel) },
+          { material: paleMat, shapes: traceShapes((x, y) => Math.max(
+              solidMask(x, y), Math.hypot(x - pivot.x, y - pivot.y) - R
+            ) + faceBevel) }
+        ]
+      : [{ material: paleMat, shapes: faceShapes }];
 
-    for (const sign of [1, -1]) {
-      const face = new THREE.Mesh(
-        faceGeometry,
-        type === 'outer' ? shellMat : paleMat
-      );
+    for (const layer of faceLayers) {
+      const faceGeometry = makeGeometry(layer.shapes, faceDepth, faceBevel);
+      for (const sign of [1, -1]) {
+        const face = new THREE.Mesh(faceGeometry, layer.material);
 
-      face.position.z = sign * FACE_Z;
-      face.scale.z = sign;
-      face.castShadow = true;
-      face.receiveShadow = true;
-      face.userData = meta;
-      group.add(face);
-      pickables.push(face);
+        face.position.z = sign * FACE_Z;
+        face.scale.z = sign;
+        face.castShadow = true;
+        face.receiveShadow = true;
+        face.userData = meta;
+        group.add(face);
+        pickables.push(face);
+      }
     }
 
     const part = { group, pivot, meta };
@@ -1252,109 +1243,64 @@ try {
     return mesh;
   }
 
-  // Photo-matched rims (see MagicBean.jpg / .png):
-  // - outer blue ring: shallow festoon arches hugging the edge, each with
-  //   one small embossed dot inside; tiny dots sit between arches.
-  // - 2 black flank holes per outer lobe on the blue face near the seam.
-  // - 1 black seam dot per gap on the pale fixed body, ON the plastic.
-  const seamPinGeo = new THREE.SphereGeometry(0.048, 20, 14);
-  const flankHoleGeo = new THREE.SphereGeometry(0.065, 20, 14);
-
-  for (let lobe = 0; lobe < 3; lobe++) {
-    const part = parts[`outer${lobe}`];
-
+  // Thin molded scallops and inset dots follow the rim, as in the photos.
+  // All details are hosted on the same half as the plastic below them.
+  function moldedLine(part, points, material, radius = 0.007) {
     for (const sign of [1, -1]) {
-      // Shallow arch grooves: wide, flat, barely proud — like the molded
-      // wave in the JPG. Long axis follows the rim tangent.
-      for (let k = -2; k <= 2; k++) {
-        const angle = angles[lobe] + k * STEP * 0.98;
-        const radial = new THREE.Vector2(Math.cos(angle), Math.sin(angle));
-        const base = new THREE.Vector3(
-          centers[lobe].x + 1.295 * radial.x,
-          centers[lobe].y + 1.295 * radial.y,
-          sign * DETAIL_Z
-        );
-
-        detail(
-          part,
-          base,
-          new THREE.Vector3(0.095, 0.30, 0.014),
-          grooveMat,
-          angle
-        );
-
-        // Small embossed dot centered in each arch (same blue family).
-        detail(
-          part,
-          base.clone().setZ(sign * (DETAIL_Z + 0.016)),
-          new THREE.Vector3(0.04, 0.04, 0.012),
-          accentMat
-        );
-      }
-
-      // Tiny dots between arches, tucked toward the outer edge.
-      for (let k = -2; k <= 1; k++) {
-        const angle = angles[lobe] + (k + 0.5) * STEP * 0.98;
-        const radial = new THREE.Vector2(Math.cos(angle), Math.sin(angle));
-        const outward = radial.x * normals[lobe].x + radial.y * normals[lobe].y;
-        if (outward < 0.3) continue;
-        detail(
-          part,
-          new THREE.Vector3(
-            centers[lobe].x + 1.335 * radial.x,
-            centers[lobe].y + 1.335 * radial.y,
-            sign * (DETAIL_Z + 0.008)
-          ),
-          new THREE.Vector3(0.032, 0.032, 0.01),
-          grooveMat
-        );
-      }
-
-      // Two black flank holes per lobe on the blue face, near the seam —
-      // this is where the JPG shows them (front face, just outside beads).
-      for (const off of [1.32, -1.32]) {
-        const angle = angles[lobe] + off;
-        const radial = new THREE.Vector2(Math.cos(angle), Math.sin(angle));
-        const mesh = new THREE.Mesh(flankHoleGeo, holeMat);
-        mesh.position.set(
-          centers[lobe].x + 1.17 * radial.x - part.pivot.x,
-          centers[lobe].y + 1.17 * radial.y - part.pivot.y,
-          sign * (DETAIL_Z + 0.002)
-        );
-        mesh.scale.set(1, 1, 0.4);
-        mesh.userData = part.meta;
-        part.group.add(mesh);
-        pickables.push(mesh);
-      }
+      const curve = new THREE.CatmullRomCurve3(points.map(p =>
+        new THREE.Vector3(p.x - part.pivot.x, p.y - part.pivot.y,
+          sign * (DETAIL_Z - 0.007))
+      ), true);
+      const mesh = new THREE.Mesh(new THREE.TubeGeometry(curve, 64, radius, 6, true), material);
+      mesh.userData = part.meta;
+      part.group.add(mesh);
+      pickables.push(mesh);
     }
   }
 
-  // Single black seam dots on the pale fixed body — pulled well inside
-  // the silhouette (r=1.02) so they sit ON plastic, not in the air gap.
-  // r=1.95 was outside bodyField (central r=1.28 + outer circles), which
-  // left front+back pins floating and visible as doubled dots.
-  {
-    const fixed = parts.fixed;
-    for (let lobe = 0; lobe < 3; lobe++) {
-      const a0 = angles[lobe];
-      const a1 = angles[(lobe + 1) % 3];
-      const mid = Math.atan2(
-        Math.sin(a0) + Math.sin(a1),
-        Math.cos(a0) + Math.cos(a1)
-      );
-      const pr = 1.02;
-      for (const sign of [1, -1]) {
-        const mesh = new THREE.Mesh(seamPinGeo, holeMat);
-        mesh.position.set(
-          Math.cos(mid) * pr - fixed.pivot.x,
-          Math.sin(mid) * pr - fixed.pivot.y,
-          sign * (DETAIL_Z + 0.002)
-        );
-        mesh.scale.set(1, 1, 0.4);
-        mesh.userData = fixed.meta;
-        fixed.group.add(mesh);
-        pickables.push(mesh);
+  for (let lobe = 0; lobe < 3; lobe++) {
+    const part = parts[`outer${lobe}`];
+    const center = centers[lobe];
+    for (let k = -2; k <= 2; k++) {
+      const angle = angles[lobe] + k * STEP;
+      const points = [];
+      // A shallow lens, with its long axis following the circular shell.
+      for (let j = 0; j < 40; j++) {
+        const t = j * TAU / 40;
+        const a = angle + 0.255 * Math.cos(t);
+        const r = 1.33 + 0.11 * Math.sin(t);
+        points.push(new THREE.Vector2(center.x + r * Math.cos(a), center.y + r * Math.sin(a)));
       }
+      moldedLine(part, points, accentMat);
+    }
+    for (let k = -2; k <= 1; k++) {
+      const angle = angles[lobe] + (k + 0.5) * STEP;
+      for (const sign of [1, -1]) {
+        const p = new THREE.Vector3(center.x + 1.32 * Math.cos(angle),
+          center.y + 1.32 * Math.sin(angle), sign * (DETAIL_Z - 0.002));
+        detail(part, p, new THREE.Vector3(0.057, 0.057, 0.009), accentMat);
+        detail(part, p.clone().setZ(sign * (DETAIL_Z + 0.006)),
+          new THREE.Vector3(0.043, 0.043, 0.008), shellMat);
+      }
+    }
+    for (const off of [1.32, -1.32]) {
+      const angle = angles[lobe] + off;
+      for (const sign of [1, -1]) {
+        detail(part, new THREE.Vector3(center.x + 1.27 * Math.cos(angle),
+          center.y + 1.27 * Math.sin(angle), sign * (DETAIL_Z - 0.008)),
+          new THREE.Vector3(0.060, 0.075, 0.016), holeMat, angle);
+      }
+    }
+
+    // One dark pin on each stationary shoulder. The old radius-1.02 pins
+    // floated inside the rotor and were struck by its arms every 60°.
+    const n = normals[lobe];
+    for (const sign of [1, -1]) {
+      detail(parts.fixed, new THREE.Vector3(
+        center.x - 0.35 * n.x - 1.21 * n.y,
+        center.y - 0.35 * n.y + 1.21 * n.x,
+        sign * (DETAIL_Z - 0.008)
+      ), new THREE.Vector3(0.066, 0.066, 0.014), holeMat);
     }
   }
 
@@ -1382,8 +1328,7 @@ try {
     }
   }
 
-  // Split hub details follow the lobe's actual seam. Gap 0.030 keeps a
-  // visible seam groove after the 0.022 raised-shape bevel (0.030 > 0.022).
+  // Split hex grips follow the lobe seam, with clearance for their bevel.
   function clipPolygon(points, normal, center, sign) {
     const output = [];
     const distance = p =>
@@ -1405,34 +1350,9 @@ try {
     return output;
   }
 
-  // Large split lobe hubs like the real toy (second photo): raised disks
-  // filling the lobe centres so beads hug them, split outer/inner halves
-  // (outer half flips with the shell, inner half stays). Radius 0.55
-  // leaves 0.065 clearance to bead inner edges (0.615), forming clean
-  // inner groove walls. Both faces via addRaisedShape.
-  for (let lobe = 0; lobe < 3; lobe++) {
-    const c = centers[lobe];
-    const points = [];
-
-    for (let i = 0; i < 32; i++) {
-      const angle = i * TAU / 32;
-      points.push(new THREE.Vector2(
-        c.x + 0.55 * Math.cos(angle),
-        c.y + 0.55 * Math.sin(angle)
-      ));
-    }
-
-    for (const sign of [1, -1]) {
-      const clipped = clipPolygon(points, normals[lobe], c, sign);
-
-      addRaisedShape(
-        sign === 1 ? parts[`outer${lobe}`] : parts.fixed,
-        new THREE.Shape(clipped),
-        0.06,
-        paleMat
-      );
-    }
-  }
+  // Lobe hub disks are part of the face geometry above. Their inward
+  // crescents belong to the rotor; an extra unsplit disk here would bridge
+  // that seam and cover the moving crescents.
 
   // Shallow leaf relief and one inset dot on each broad arm. The local
   // leaf points along +Y, so rotate by (arm angle - PI/2) on both faces.
@@ -1466,31 +1386,26 @@ try {
   capShape.absarc(0, 0, 0.44, 0, TAU, false);
   addRaisedShape(parts.rotor, capShape, 0.09, paleMat);
 
-  // Recessed ring around the center cap + tiny hub dot, as in photos.
+  // Subtle molded lip around the center cap.
   {
-    const ringGeo = new THREE.TorusGeometry(0.47, 0.018, 12, 64);
+    const ringGeo = new THREE.TorusGeometry(0.445, 0.009, 12, 64);
     for (const sign of [1, -1]) {
-      const ring = new THREE.Mesh(ringGeo, grooveMat);
-      ring.position.set(0, 0, sign * (RAISED_Z + 0.105));
+      const ring = new THREE.Mesh(ringGeo, paleMat);
+      ring.position.set(0, 0, sign * (RAISED_Z + 0.082));
       ring.userData = parts.rotor.meta;
       parts.rotor.group.add(ring);
       pickables.push(ring);
     }
   }
 
-  // Hex bolts on the lobe hubs, split with the hubs like the real toy
-  // (second photo shows the split line running through each hex).
-  // Whole bolts would bridge the outer/fixed seam and jam the flip,
-  // so each hex is clipped into outer/inner halves. Front halves sit on
-  // the large-hub tops (z+), back halves mirrored (z-, scale -1).
-  // The old dark torus seam ring bridged too, so it is removed — the
-  // 0.032 clip gap itself reads as the seam.
+  // Broad hex grips are split between the fixed and flipping hub halves,
+  // on both faces. No raised detail bridges either mechanical seam.
   {
     const hexPoints = [];
     for (let i = 0; i < 6; i++) {
       const a = i * TAU / 6 + Math.PI / 6;
       hexPoints.push(new THREE.Vector2(
-        0.085 * Math.cos(a), 0.085 * Math.sin(a)
+        0.21 * Math.cos(a), 0.21 * Math.sin(a)
       ));
     }
     function hexHalf(lobe, halfSign) {
@@ -1521,7 +1436,7 @@ try {
           bolt.position.set(
             centers[lobe].x - host.pivot.x,
             centers[lobe].y - host.pivot.y,
-            faceSign * (RAISED_Z + 0.085)
+            faceSign * (RAISED_Z + 0.008)
           );
           if (faceSign < 0) bolt.scale.z = -1;
           bolt.userData = host.meta;
@@ -2437,6 +2352,8 @@ try {
     const aspect = width / height;
 
     camera.aspect = aspect;
+    const halfHeight = Math.max(3.62, 3.25 / aspect);
+    camera.position.z = halfHeight / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
 
     camera.updateProjectionMatrix();
     renderer.setSize(width, height, false);

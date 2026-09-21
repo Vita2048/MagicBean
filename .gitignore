@@ -1,7 +1,9 @@
 MagicBean.jpg
 MagicBean.png
-MagicBeanRotationTrick.jpg 
+MagicBeanRotationTrick.jpg
 Rotation.png
 SingleChamber.png
-TransitionState.png 
-RimChambers.jpg 
+TransitionState.png
+RimChambers.jpg
+node_modules/
+.verification/

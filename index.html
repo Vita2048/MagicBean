@@ -717,8 +717,10 @@ try {
   root.position.y = -0.28;
   scene.add(root);
 
-  let viewYaw = -0.24;
-  let viewPitch = 0.16;
+  // Face-on at rest: the bean's +z looks straight down the camera axis,
+  // and the top lobe stays on screen-up. Dragging the background still orbits.
+  let viewYaw = 0;
+  let viewPitch = 0;
   const viewTarget = new THREE.Quaternion();
 
   function updateViewTarget() {
@@ -1482,7 +1484,8 @@ try {
     })
   );
 
-  const beanGeometry = new THREE.SphereGeometry(0.265, 40, 28);
+  const BEAN_R = 0.265;
+  const beanGeometry = new THREE.SphereGeometry(BEAN_R, 40, 28);
 
   // Lobe slots: 33 per face (30 lobe + 3 pocket), 66 total.
   // face 0: 0-29 lobe, 30-32 pocket; face 1: 33-62 lobe, 63-65 pocket.
@@ -1543,7 +1546,10 @@ try {
         const target = face * 3 + lobe;
         const position = slotPosition(face, lobe, k);
 
-        slots[id] = { face, lobe, k, pocket: -1, target, position };
+        slots[id] = {
+          face, lobe, k, pocket: -1, target, position,
+          canonical: position.clone()
+        };
 
         const mesh = new THREE.Mesh(
           beanGeometry,
@@ -1563,9 +1569,10 @@ try {
     // Central pocket slots: transit only, no colour target.
     for (let p = 0; p < 3; p++) {
       const id = pocketID(face, p);
+      const position = slotPosition(face, -1, -1, p);
       slots[id] = {
         face, lobe: -1, k: -1, pocket: p, target: -1,
-        position: slotPosition(face, -1, -1, p)
+        position, canonical: position.clone()
       };
       solvedState[id] = null;
     }
@@ -1603,6 +1610,46 @@ try {
       bean.mesh.position.copy(slots[id].position);
       bean.mesh.userData.slot = id;
     });
+  }
+
+  // Inner beads travel with the rotor. k4/k6 are not on a 60° lattice
+  // (they alternate ~52.6°/67.4°), so parking them on the fixed rim
+  // slots after a 60° turn shoves them into the rotor plastic.
+  // Rest each carried slot on the rigid image of the bead that now
+  // occupies it. Even steps land back on the circular rims because
+  // those steps are 120° symmetries of the trefoil.
+  function carriedRings(face) {
+    return [
+      [
+        slotID(face, 0, 6), slotID(face, 0, 4),
+        slotID(face, 1, 6), slotID(face, 1, 4),
+        slotID(face, 2, 6), slotID(face, 2, 4)
+      ],
+      [
+        pocketID(face, 0), slotID(face, 0, 5),
+        pocketID(face, 1), slotID(face, 1, 5),
+        pocketID(face, 2), slotID(face, 2, 5)
+      ]
+    ];
+  }
+
+  const layoutAxis = new THREE.Vector3(0, 0, 1);
+  const layoutQuat = new THREE.Quaternion();
+
+  function layoutCarriedSlots() {
+    const n = ((rotorRotation % 6) + 6) % 6;
+    layoutQuat.setFromAxisAngle(layoutAxis, n * TAU / 6);
+
+    for (let face = 0; face < 2; face++) {
+      for (const ring of carriedRings(face)) {
+        for (let i = 0; i < ring.length; i++) {
+          const src = ring[(i - n + ring.length * 6) % ring.length];
+          slots[ring[i]].position
+            .copy(slots[src].canonical)
+            .applyQuaternion(layoutQuat);
+        }
+      }
+    }
   }
 
   function updateUI() {
@@ -1722,13 +1769,9 @@ try {
     const mappings = [];
     let pivot = new THREE.Vector3();
     let axis = new THREE.Vector3(0, 0, 1);
-    // Centre: BOTH beads and plastic move 60° (same angle, same
-    // quaternion). Two 60°-symmetric rings permute:
-    // - k4/k6 six-ring (6 beads, full, no blanks; ~52.6°/67.4° spacing,
-    //   so beads get a small drift correction to land exactly);
-    // - k5/pocket six-ring (3 beads + 3 blanks, exact: lobe-k5 and
-    //   pocket share ring radius 0.81 at 60° spacing).
-    // Rings include blank (null) sources so vacancies permute too.
+    // Centre: beads and plastic share one 60° rotation about the origin.
+    // No sideways drift — k4/k6 would otherwise leave the rotor groove
+    // and intersect the plastic. Vacancies ride along in the same rings.
     // Ring drags are state-dependent (checked at execution time):
     // even (separate) = rigid 10-cycle in one rim; odd (chamber) =
     // big 30-loop through all rims + pocket so ALL marbles travel.
@@ -1772,20 +1815,7 @@ try {
       part = parts.rotor;
 
       for (let face = 0; face < 2; face++) {
-        // k4/k6 six-ring in angular order (full, no blanks).
-        const ring46 = [
-          slotID(face, 0, 6), slotID(face, 0, 4),
-          slotID(face, 1, 6), slotID(face, 1, 4),
-          slotID(face, 2, 6), slotID(face, 2, 4)
-        ];
-        // k5/pocket six-ring in angular order
-        // (gap30, lobe0k5, gap150, lobe1k5, gap270, lobe2k5).
-        const ring5p = [
-          pocketID(face, 0), slotID(face, 0, 5),
-          pocketID(face, 1), slotID(face, 1, 5),
-          pocketID(face, 2), slotID(face, 2, 5)
-        ];
-        for (const ring of [ring46, ring5p]) {
+        for (const ring of carriedRings(face)) {
           for (let i = 0; i < ring.length; i++) {
             mappings.push([
               ring[i],
@@ -1825,11 +1855,10 @@ try {
         ? (definition.lerp ? 520 : 210) // big loop travels farther
         : move.type === 'center' ? 380 : 850; // short 60° click
 
-    // Beads mostly follow a rigid rotation, but the k4/k6 ring is
-    // several degrees off ideal 60° symmetry, so a pure 60° rotation
-    // would land off-slot and snapBeans() would visibly jump at the
-    // end. Precompute the exact drift (target - rigid end) and blend
-    // it in during the animation so the beads land exactly.
+    // Centre turns stay on the rigid rotation. layoutCarriedSlots()
+    // parks the beads on that same image, so a drift toward the old
+    // rim coordinate would push them into the rotor. Other moves may
+    // still ease a tiny remainder onto an exact slot.
     const fullBead = new THREE.Quaternion().setFromAxisAngle(
       definition.axis, definition.angle ?? 0
     );
@@ -1837,7 +1866,7 @@ try {
       const start = slots[from].position.clone();
       const end = slots[to].position.clone();
       let drift = null;
-      if (!definition.lerp && definition.angle) {
+      if (move.type !== 'center' && !definition.lerp && definition.angle) {
         const rigidEnd = start.clone().sub(definition.pivot)
           .applyQuaternion(fullBead).add(definition.pivot);
         const delta = end.clone().sub(rigidEnd);
@@ -1873,19 +1902,19 @@ try {
       state[item.to] = item.bean;
     }
 
-    // Rotor keeps its accumulated 60° orientation (two-state toggle);
-    // its six edge ports stay aligned in both states. Flip parts are
-    // 180° front/back symmetric; accumulate as well to avoid a snap.
-    // (Previously the rotor was reset to identity, which destroyed the
-    // 60° toggle state.)
-    snapBeans();
-
-    // Track 60° steps for chamber/separate UI state (0-5, even/odd).
-    // completed.dir is the actual signed step just animated (undo moves
-    // already carry the opposite sign), so always add it.
+    // Track 60° steps before parking beads, so the rest pose is the
+    // pose the rigid turn just reached. Snap the rotor to that angle
+    // as well — incremental quaternions wander off the beads.
     if (completed.type === 'center') {
       rotorRotation = (rotorRotation + completed.dir + 6) % 6;
+      parts.rotor.group.quaternion.setFromAxisAngle(
+        layoutAxis,
+        rotorRotation * TAU / 6
+      );
+      layoutCarriedSlots();
     }
+
+    snapBeans();
 
     if (completed.source === 'undo') {
       history.pop();
@@ -2037,6 +2066,7 @@ try {
     }
 
     state = solvedState.slice();
+    layoutCarriedSlots();
     snapBeans();
     showFace(0);
     updateUI();
@@ -2375,7 +2405,15 @@ try {
 
     camera.aspect = aspect;
     const halfHeight = Math.max(3.62, 3.25 / aspect);
-    camera.position.z = halfHeight / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    // Stay on the bean's face normal. A camera offset in x or y would
+    // show the face at an angle even when the model itself is unrotated.
+    camera.position.set(
+      0,
+      root.position.y,
+      halfHeight / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))
+    );
+    camera.up.set(0, 1, 0);
+    camera.lookAt(0, root.position.y, 0);
 
     camera.updateProjectionMatrix();
     renderer.setSize(width, height, false);

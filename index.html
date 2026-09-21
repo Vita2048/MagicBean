@@ -836,31 +836,19 @@ try {
     return value;
   }
 
-  // Same 3-circle pattern rotated +60° about the origin.
-  // The rotor carves the UNION of the two (6 circles) plus a central
-  // pocket, so its groove pattern is 60°-symmetric: any 60° step keeps
-  // all 6 edge ports aligned to the fixed tracks. The fixed/outer
-  // parts keep the plain 3-circle pattern.
-  function trackField60(x, y) {
-    const c = 0.5, s = 0.8660254037844386;
-    return trackField(x * c + y * s, -x * s + y * c);
-  }
-
-  const POCKET_RADIUS = 0.85;
-
-  function pocketField(x, y) {
-    return Math.hypot(x, y) - POCKET_RADIUS;
-  }
-
-  // Wide central chamber for the rotor only: pocket UNION 6 narrow
-  // channels. 60°-symmetric, so rotor rotation is invisible in the
-  // carving — the visible toggle comes from the 3 raised radial walls.
+  // One continuous molded Y, as in the reference photos: three circular
+  // scallops cut into a disk leave broad, curved ends between the lobes.
+  // Its concave sides follow the OUTSIDE of each marble track. Rotating
+  // this same 120°-symmetric piece by 60° opens the shared chamber.
+  const ROTOR_BEVEL = 0.035;
   function rotorTrackField(x, y) {
-    return Math.min(
-      pocketField(x, y),
-      trackField(x, y),
-      trackField60(x, y)
-    );
+    let value = Infinity;
+    for (const c of centers) {
+      value = Math.min(value,
+        Math.hypot(x - c.x, y - c.y) -
+        (R + TRACK_HALF + ROTOR_BEVEL));
+    }
+    return value;
   }
 
   function outwardDistance(x, y, lobe) {
@@ -1200,9 +1188,9 @@ try {
 
     const faceGeometry = makeGeometry(
       faceShapes,
-      FACE_DEPTH,
-      FACE_BEVEL,
-      FACE_DOME
+      type === 'rotor' ? FACE_DEPTH + FACE_BEVEL - ROTOR_BEVEL : FACE_DEPTH,
+      type === 'rotor' ? ROTOR_BEVEL : FACE_BEVEL,
+      type === 'rotor' ? 0 : FACE_DOME
     );
 
     for (const sign of [1, -1]) {
@@ -1231,20 +1219,14 @@ try {
 
   // -----------------------------------------------------
   // Two-state central rotor: 60° steps, even = separate circles,
-  // odd = one central chamber (big loop). The carving above is
-  // 60°-symmetric (pocket + 6 channels) so it stays aligned on every
-  // step; the visible toggle comes from the 3 raised radial walls
-  // below (120°-symmetric). Walls at gap angles block the cross
-  // connections (separate), walls at lobe angles block the same
-  // connections (chamber). D = 1.69 makes the 6 edge ports exactly
-  // 60° apart so both wall sets fit cleanly.
+  // odd = one central chamber. The Y points between the lobes in
+  // the first state and toward the lobe hubs in the second state.
   // -----------------------------------------------------
 
   // Rotor position in 60° steps (0-5). Even = separate circles
   // (marbles rotate in each circle), odd = chamber (all marbles
-  // can travel through the centre). Bead permutation still moves
-  // inner slots lobe->lobe (120° logical) while the plastic rotor
-  // turns 60° — the wide pocket hides the relative slide.
+  // can travel through the centre). Plastic and inner beans both
+  // turn 60° using the existing slot permutation.
   let rotorRotation = 0;
 
   function rotorIsChamber() {
@@ -1452,66 +1434,31 @@ try {
     }
   }
 
-  // Three raised radial walls on the central carrier — chunky Y-hub arms
-  // like the real toy (second photo): wide enough to read as solid
-  // molded arms, still narrow enough to leave bead ports open.
-  // Together with the 60°-symmetric pocket + 6 channels they form the
-  // two-state chamber: walls at gap angles (30/150/270) block the cross
-  // connections so each circle stays separate; rotated 60° to lobe
-  // angles they block the same connections so all marbles share one
-  // central chamber. Walls run from under the centre cap (r=0.12) to
-  // the rotor edge (r=1.18) so beads cannot slip around either end.
+  // Shallow leaf relief and one inset dot on each broad arm. The local
+  // leaf points along +Y, so rotate by (arm angle - PI/2) on both faces.
   for (let lobe = 0; lobe < 3; lobe++) {
     const angle = angles[lobe] - Math.PI / 3;
+    const rotation = angle - Math.PI / 2;
+    const leaf = new THREE.Shape();
+    leaf.moveTo(0, 1.08);
+    leaf.bezierCurveTo(-0.16, 0.93, -0.19, 0.65, -0.12, 0.50);
+    leaf.quadraticCurveTo(0, 0.43, 0.12, 0.50);
+    leaf.bezierCurveTo(0.19, 0.65, 0.16, 0.93, 0, 1.08);
+    const points = leaf.getPoints(40).map(p => new THREE.Vector2(
+      p.x * Math.cos(rotation) - p.y * Math.sin(rotation),
+      p.x * Math.sin(rotation) + p.y * Math.cos(rotation)
+    ));
+    addRaisedShape(parts.rotor, new THREE.Shape(points), 0.004, paleMat);
 
-    const petal = new THREE.Shape();
-    petal.moveTo(-0.22, 0.12);
-    petal.lineTo(-0.22, 0.90);
-    petal.quadraticCurveTo(-0.21, 1.08, 0, 1.18);
-    petal.quadraticCurveTo(0.21, 1.08, 0.22, 0.90);
-    petal.lineTo(0.22, 0.12);
-    petal.quadraticCurveTo(0, 0.05, -0.22, 0.12);
-
-    const points = petal.getPoints(40).map(p =>
-      new THREE.Vector2(
-        p.x * Math.cos(angle) - p.y * Math.sin(angle),
-        p.x * Math.sin(angle) + p.y * Math.cos(angle)
-      )
-    );
-
-    addRaisedShape(
-      parts.rotor,
-      new THREE.Shape(points),
-      0.02,
-      paleMat
-    );
-
-    // Spine + tip dot for each petal, both faces.
     for (const sign of [1, -1]) {
-      const dir = new THREE.Vector2(Math.cos(angle), Math.sin(angle));
-      const perp = new THREE.Vector2(-dir.y, dir.x);
-      for (let s = 0; s <= 4; s++) {
-        const t = 0.58 + s * 0.11;
-        const w = 0.028 * (1 - s * 0.12);
-        detail(
-          parts.rotor,
-          new THREE.Vector3(dir.x * t, dir.y * t, sign * (RAISED_Z + 0.045)),
-          new THREE.Vector3(w, w, 0.012),
-          grooveMat
-        );
-      }
-      // Elongated leaf vein.
-      const vein = new THREE.Mesh(detailSphere, grooveMat);
-      vein.position.set(
-        dir.x * 0.82 - parts.rotor.pivot.x,
-        dir.y * 0.82 - parts.rotor.pivot.y,
-        sign * (RAISED_Z + 0.038)
+      const position = new THREE.Vector3(
+        Math.cos(angle) * 0.80, Math.sin(angle) * 0.80,
+        sign * (RAISED_Z + 0.032)
       );
-      vein.scale.set(0.022, 0.19, 0.01);
-      vein.rotation.z = angle - Math.PI / 2;
-      vein.userData = parts.rotor.meta;
-      parts.rotor.group.add(vein);
-      pickables.push(vein);
+      detail(parts.rotor, position,
+        new THREE.Vector3(0.049, 0.049, 0.008), grooveMat);
+      detail(parts.rotor, position.clone().setZ(sign * (RAISED_Z + 0.040)),
+        new THREE.Vector3(0.035, 0.035, 0.006), paleMat);
     }
   }
 
@@ -1993,7 +1940,7 @@ try {
     }
 
     // Rotor keeps its accumulated 60° orientation (two-state toggle);
-    // its carving is 60°-symmetric so it stays aligned. Flip parts are
+    // its six edge ports stay aligned in both states. Flip parts are
     // 180° front/back symmetric; accumulate as well to avoid a snap.
     // (Previously the rotor was reset to identity, which destroyed the
     // 60° toggle state.)

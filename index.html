@@ -605,16 +605,20 @@ try {
   const TAU = Math.PI * 2;
   const STEP = TAU / 10;
   const R = 0.88;
-  // D = 1.69 gives equal 60°/60° port spacing at the rotor edge
-  // (delta = 30°: intra-lobe arc = 60°, inter-lobe gap = 60°).
-  // With D = 1.52 the spacing was 70.7°/49.3°, so a 60° rotor step
-  // could never align to the fixed tracks. Equal spacing lets one
-  // rigid 60° rotor toggle between two states:
+  // D = 2*R = 1.76. Rotor edge passes exactly midway between the
+  // inner and outer marbles (mid k3/k4 and k6/k7 along each rim, i.e.
+  // lobe-local 126°/234°): Rr = hypot(D - R*sin36°, R*cos36°) ~= 1.432.
+  // Ports are then 59.5°/60.5° (within GAP), so a 60° rotor step still
+  // aligns, and the seam sits in the visible gaps between marbles
+  // instead of clipping them. Equal spacing lets one rigid 60° rotor
+  // toggle between two states:
   // even = separate circles, odd = one central chamber (big loop).
-  const D = 1.69;
+  const D = 2 * R;
   const OUTER_RADIUS = 1.50;
   const TRACK_HALF = 0.275;
-  const ROTOR_RADIUS = 1.22;
+  const ROTOR_RADIUS = Math.hypot(
+    D - R * Math.sin(STEP), R * Math.cos(STEP)
+  );
   const GAP = 0.012;
   // Rounded plastic stays inside each mechanical region. Insetting before
   // beveling preserves the seam clearance, including throughout a flip.
@@ -727,8 +731,8 @@ try {
   root.quaternion.copy(viewTarget);
 
   function showFace(face) {
-    viewYaw = face ? Math.PI - 0.24 : -0.24;
-    viewPitch = 0.16;
+    viewYaw = face ? Math.PI : 0;
+    viewPitch = 0;
     updateViewTarget();
   }
 
@@ -805,7 +809,7 @@ try {
   // -----------------------------------------------------
 
   function bodyField(x, y) {
-    let value = Math.hypot(x, y) - 1.28;
+    let value = Math.hypot(x, y) - (ROTOR_RADIUS + 0.06);
 
     for (const c of centers) {
       value = Math.min(
@@ -1360,10 +1364,10 @@ try {
     const angle = angles[lobe] - Math.PI / 3;
     const rotation = angle - Math.PI / 2;
     const leaf = new THREE.Shape();
-    leaf.moveTo(0, 1.08);
-    leaf.bezierCurveTo(-0.16, 0.93, -0.19, 0.65, -0.12, 0.50);
-    leaf.quadraticCurveTo(0, 0.43, 0.12, 0.50);
-    leaf.bezierCurveTo(0.19, 0.65, 0.16, 0.93, 0, 1.08);
+    leaf.moveTo(0, 1.35);
+    leaf.bezierCurveTo(-0.20, 1.16, -0.24, 0.81, -0.15, 0.62);
+    leaf.quadraticCurveTo(0, 0.54, 0.15, 0.62);
+    leaf.bezierCurveTo(0.24, 0.81, 0.20, 1.16, 0, 1.35);
     const points = leaf.getPoints(40).map(p => new THREE.Vector2(
       p.x * Math.cos(rotation) - p.y * Math.sin(rotation),
       p.x * Math.sin(rotation) + p.y * Math.cos(rotation)
@@ -1372,7 +1376,7 @@ try {
 
     for (const sign of [1, -1]) {
       const position = new THREE.Vector3(
-        Math.cos(angle) * 0.80, Math.sin(angle) * 0.80,
+        Math.cos(angle) * 1.00, Math.sin(angle) * 1.00,
         sign * (RAISED_Z + 0.032)
       );
       detail(parts.rotor, position,
@@ -1719,9 +1723,9 @@ try {
     let pivot = new THREE.Vector3();
     let axis = new THREE.Vector3(0, 0, 1);
     // Centre: BOTH beads and plastic move 60° (same angle, same
-    // quaternion). Two exact 60°-symmetric rings permute:
-    // - k4/k6 six-ring (6 beads, full, no blanks; ~4° off ideal, the
-    //   tiny end snap reads as the mechanical detent click);
+    // quaternion). Two 60°-symmetric rings permute:
+    // - k4/k6 six-ring (6 beads, full, no blanks; ~52.6°/67.4° spacing,
+    //   so beads get a small drift correction to land exactly);
     // - k5/pocket six-ring (3 beads + 3 blanks, exact: lobe-k5 and
     //   pocket share ring radius 0.81 at 60° spacing).
     // Rings include blank (null) sources so vacancies permute too.
@@ -1821,11 +1825,26 @@ try {
         ? (definition.lerp ? 520 : 210) // big loop travels farther
         : move.type === 'center' ? 380 : 850; // short 60° click
 
-    const moving = definition.mappings.map(([from, to]) => ({
-      bean: state[from],
-      start: slots[from].position.clone(),
-      to
-    }));
+    // Beads mostly follow a rigid rotation, but the k4/k6 ring is
+    // several degrees off ideal 60° symmetry, so a pure 60° rotation
+    // would land off-slot and snapBeans() would visibly jump at the
+    // end. Precompute the exact drift (target - rigid end) and blend
+    // it in during the animation so the beads land exactly.
+    const fullBead = new THREE.Quaternion().setFromAxisAngle(
+      definition.axis, definition.angle ?? 0
+    );
+    const moving = definition.mappings.map(([from, to]) => {
+      const start = slots[from].position.clone();
+      const end = slots[to].position.clone();
+      let drift = null;
+      if (!definition.lerp && definition.angle) {
+        const rigidEnd = start.clone().sub(definition.pivot)
+          .applyQuaternion(fullBead).add(definition.pivot);
+        const delta = end.clone().sub(rigidEnd);
+        if (delta.lengthSq() > 1e-12) drift = delta;
+      }
+      return { bean: state[from], start, to, end, drift };
+    });
 
     active = {
       ...move,
@@ -1945,6 +1964,9 @@ try {
           .sub(active.pivot)
           .applyQuaternion(beadQuaternion)
           .add(active.pivot);
+        if (item.drift) {
+          item.bean.mesh.position.addScaledVector(item.drift, eased);
+        }
       }
 
       if (active.part && active.partStart) {
